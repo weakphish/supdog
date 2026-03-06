@@ -1,5 +1,5 @@
 // crates/sup/src/output.rs
-use sup_core::models::{Node, NodeType, TaskStatus};
+use sup_core::models::{Node, NodeType};
 
 pub fn print_node_tree(nodes: &[Node], indent: usize) {
     for node in nodes {
@@ -26,4 +26,13 @@ pub fn print_node_tree(nodes: &[Node], indent: usize) {
         println!("{}{} {}{}{}", prefix, icon, node.content, priority_str, tag_str);
         print_node_tree(&node.children, indent + 1);
     }
+}
+
+pub fn attach_tags_to_tree(db: &mut sup_core::db::Database, nodes: &mut Vec<sup_core::models::Node>) -> anyhow::Result<()> {
+    for node in nodes.iter_mut() {
+        let node_tags = sup_core::queries::tags::get_tags_for_node(db, &node.id)?;
+        node.tags = node_tags.into_iter().map(|t| t.name).collect();
+        attach_tags_to_tree(db, &mut node.children)?;
+    }
+    Ok(())
 }

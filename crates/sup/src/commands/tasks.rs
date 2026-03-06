@@ -22,10 +22,9 @@ pub fn list(db: &mut Database, tag: Option<String>, status: Option<String>, json
     for mut task in task_list {
         let children = nodes::get_children(db, &task.id)?;
         task.children = nodes::build_tree(db, children)?;
-        let task_tags = tags::get_tags_for_node(db, &task.id)?;
-        task.tags = task_tags.into_iter().map(|t| t.name).collect();
         result.push(task);
     }
+    crate::output::attach_tags_to_tree(db, &mut result)?;
 
     if json {
         println!("{}", serde_json::to_string_pretty(&result)?);

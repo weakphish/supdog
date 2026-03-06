@@ -18,7 +18,7 @@ pub fn run(db: &mut Database, date: NaiveDate, json: bool) -> Result<()> {
     let mut tree = nodes::build_tree(db, roots)?;
 
     // attach tags to each node
-    attach_tags_to_tree(db, &mut tree)?;
+    crate::output::attach_tags_to_tree(db, &mut tree)?;
 
     if json {
         let out = serde_json::json!({
@@ -33,11 +33,3 @@ pub fn run(db: &mut Database, date: NaiveDate, json: bool) -> Result<()> {
     Ok(())
 }
 
-fn attach_tags_to_tree(db: &mut Database, nodes: &mut Vec<sup_core::models::Node>) -> Result<()> {
-    for node in nodes.iter_mut() {
-        let node_tags = sup_core::queries::tags::get_tags_for_node(db, &node.id)?;
-        node.tags = node_tags.into_iter().map(|t| t.name).collect();
-        attach_tags_to_tree(db, &mut node.children)?;
-    }
-    Ok(())
-}
