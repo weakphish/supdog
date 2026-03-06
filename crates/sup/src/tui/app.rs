@@ -16,6 +16,7 @@ pub enum View {
 }
 
 pub struct App {
+    #[allow(dead_code)]
     pub db: Database,
     pub view: View,
     pub should_quit: bool,
@@ -59,11 +60,7 @@ impl App {
 
     pub fn render(&self, frame: &mut Frame) {
         let area = frame.area();
-        let view_label = match self.view {
-            View::Journal => "Journal [1]  Tasks [2]  Split [3]  Quit [q]",
-            View::Tasks   => "Journal [1]  Tasks [2]  Split [3]  Quit [q]",
-            View::Split   => "Journal [1]  Tasks [2]  Split [3]  Quit [q]",
-        };
+        let view_label = "Journal [1]  Tasks [2]  Split [3]  Quit [q]";
 
         // Status bar at the bottom
         let chunks = Layout::default()

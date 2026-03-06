@@ -21,10 +21,11 @@ pub fn run(db: Database) -> Result<()> {
 
     let result = run_loop(&mut terminal, &mut app);
 
-    // Always clean up, even on error
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
+    // Unconditional cleanup — use let _ = to ignore cleanup errors
+    // so all three steps always run, regardless of individual failures
+    let _ = disable_raw_mode();
+    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+    let _ = terminal.show_cursor();
 
     result
 }
