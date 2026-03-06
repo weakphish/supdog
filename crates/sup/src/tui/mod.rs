@@ -1,6 +1,7 @@
 // crates/sup/src/tui/mod.rs
 pub mod app;
 pub mod events;
+pub mod journal;
 
 use anyhow::Result;
 use crossterm::{
@@ -17,7 +18,7 @@ pub fn run(db: Database) -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = app::App::new(db);
+    let mut app = app::App::new(db)?;
 
     let result = run_loop(&mut terminal, &mut app);
 
