@@ -13,6 +13,8 @@ use sup_core::{
     models::{Node, NodeType},
     queries::{daily_notes, nodes, tags},
 };
+use crate::tui::editor::InlineEditor;
+use sup_core::queries::nodes::{CreateNode, UpdateNode};
 
 pub struct FlatNode {
     pub node: Node,
@@ -89,9 +91,121 @@ impl JournalState {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub fn selected_flat_node(&self) -> Option<&FlatNode> {
         self.list_state.selected().and_then(|i| self.flat.get(i))
+    }
+
+    /// Add a new node below the current selection (or at end if nothing selected)
+    pub fn add_node_below(&mut self, db: &mut Database) -> Result<InlineEditor> {
+        let daily_note = daily_notes::get_or_create(db, self.date)?;
+        let (parent_id, position) = if let Some(flat) = self.selected_flat_node() {
+            let pos = flat.node.position + 1;
+            (flat.node.parent_id.clone(), pos)
+        } else {
+            let roots = nodes::get_roots_for_day(db, &daily_note.id)?;
+            (None, roots.len() as i64)
+        };
+
+        let node = nodes::create(db, CreateNode {
+            parent_id,
+            daily_note_id: Some(daily_note.id),
+            content: String::new(),
+            node_type: NodeType::Bullet,
+            position,
+            status: None,
+            priority: None,
+            due_date: None,
+        })?;
+
+        let node_id = node.id.clone();
+        self.reload(db)?;
+
+        // select the new node
+        if let Some(idx) = self.flat.iter().position(|f| f.node.id == node_id) {
+            self.list_state.select(Some(idx));
+        }
+
+        Ok(InlineEditor::edit_existing(node_id, ""))
+    }
+
+    /// Delete the currently selected node
+    pub fn delete_selected(&mut self, db: &mut Database) -> Result<()> {
+        if let Some(flat) = self.selected_flat_node() {
+            let id = flat.node.id.clone();
+            nodes::delete(db, &id)?;
+            self.reload(db)?;
+        }
+        Ok(())
+    }
+
+    /// Indent: make selected node a child of the node above it
+    pub fn indent_selected(&mut self, db: &mut Database) -> Result<()> {
+        let sel = self.list_state.selected().unwrap_or(0);
+        if sel == 0 { return Ok(()); }
+        let node_id = self.flat[sel].node.id.clone();
+        let new_parent_id = self.flat[sel - 1].node.id.clone();
+        nodes::update(db, &node_id, UpdateNode {
+            content: None,
+            status: None,
+            priority: None,
+            due_date: None,
+            position: None,
+            parent_id: Some(Some(new_parent_id)),
+        })?;
+        self.reload(db)?;
+        Ok(())
+    }
+
+    /// Unindent: promote selected node to sibling of its parent
+    pub fn unindent_selected(&mut self, db: &mut Database) -> Result<()> {
+        let sel = self.list_state.selected().unwrap_or(0);
+        let node = self.flat[sel].node.clone();
+        if node.parent_id.is_none() { return Ok(()); } // already root
+
+        // find parent's parent_id
+        let parent_parent_id = if let Some(parent_id) = &node.parent_id {
+            nodes::get_by_id(db, parent_id)?
+                .and_then(|p| p.parent_id)
+        } else {
+            None
+        };
+
+        nodes::update(db, &node.id, UpdateNode {
+            content: None,
+            status: None,
+            priority: None,
+            due_date: None,
+            position: None,
+            parent_id: Some(parent_parent_id),
+        })?;
+        self.reload(db)?;
+        Ok(())
+    }
+
+    /// Commit an editor result: update or finalize the node
+    pub fn commit_edit(&mut self, db: &mut Database, node_id: &str, content: String) -> Result<()> {
+        if content.is_empty() {
+            // empty content = delete the node
+            nodes::delete(db, node_id)?;
+        } else {
+            nodes::update(db, node_id, UpdateNode {
+                content: Some(content),
+                status: None,
+                priority: None,
+                due_date: None,
+                position: None,
+                parent_id: None,
+            })?;
+        }
+        self.reload(db)?;
+        Ok(())
+    }
+
+    /// Start editing the currently selected node
+    pub fn start_edit_selected(&self) -> Option<InlineEditor> {
+        self.selected_flat_node().map(|flat| {
+            InlineEditor::edit_existing(flat.node.id.clone(), &flat.node.content)
+        })
     }
 }
 
@@ -116,26 +230,39 @@ fn flatten_tree(tree: &[Node], depth: usize) -> Vec<FlatNode> {
     result
 }
 
-pub fn render(state: &mut JournalState, frame: &mut Frame, area: Rect) {
-    let items: Vec<ListItem> = state.flat.iter().map(|flat| {
-        let indent = "  ".repeat(flat.depth);
+pub fn render(state: &mut JournalState, editor: Option<&InlineEditor>, frame: &mut Frame, area: Rect) {
+    let selected_idx = state.list_state.selected();
 
+    let items: Vec<ListItem> = state.flat.iter().enumerate().map(|(i, flat)| {
+        let indent = "  ".repeat(flat.depth);
         let icon = match &flat.node.node_type {
-            NodeType::Task => flat.node.status.as_ref()
-                .map(|s| s.icon())
-                .unwrap_or("☐"),
+            NodeType::Task => flat.node.status.as_ref().map(|s| s.icon()).unwrap_or("☐"),
             t => t.icon(),
         };
 
-        let content_style = match flat.node.node_type {
-            NodeType::H1 => Style::default().add_modifier(Modifier::BOLD),
-            NodeType::H2 => Style::default().add_modifier(Modifier::BOLD),
-            NodeType::Quote => Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
-            NodeType::Code => Style::default().fg(Color::Cyan),
-            _ => Style::default(),
+        // If this item is being edited, show the editor content
+        let display_content = if Some(i) == selected_idx {
+            if let Some(ed) = editor {
+                format!("{} |", ed.content) // show cursor marker
+            } else {
+                flat.node.content.clone()
+            }
+        } else {
+            flat.node.content.clone()
         };
 
-        let tag_str = if flat.node.tags.is_empty() {
+        let content_style = if editor.is_some() && Some(i) == selected_idx {
+            Style::default().fg(Color::Yellow) // editing = yellow
+        } else {
+            match flat.node.node_type {
+                NodeType::H1 | NodeType::H2 => Style::default().add_modifier(Modifier::BOLD),
+                NodeType::Quote => Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                NodeType::Code => Style::default().fg(Color::Cyan),
+                _ => Style::default(),
+            }
+        };
+
+        let tag_str = if flat.node.tags.is_empty() || editor.is_some() {
             String::new()
         } else {
             format!("  #{}", flat.node.tags.join(" #"))
@@ -143,7 +270,7 @@ pub fn render(state: &mut JournalState, frame: &mut Frame, area: Rect) {
 
         ListItem::new(Line::from(vec![
             Span::raw(format!("{}{} ", indent, icon)),
-            Span::styled(flat.node.content.clone(), content_style),
+            Span::styled(display_content, content_style),
             Span::styled(tag_str, Style::default().fg(Color::DarkGray)),
         ]))
     }).collect();
@@ -151,11 +278,6 @@ pub fn render(state: &mut JournalState, frame: &mut Frame, area: Rect) {
     let title = format!(" {} ", state.date.format("%A, %B %d %Y"));
     let list = List::new(items)
         .block(Block::bordered().title(title))
-        .highlight_style(
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD)
-        );
-
+        .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD));
     frame.render_stateful_widget(list, area, &mut state.list_state);
 }
