@@ -27,11 +27,11 @@ pub struct UpdateNode {
 
 fn row_to_node(row: &rusqlite::Row) -> rusqlite::Result<Node> {
     let node_type_str: String = row.get(4)?;
-    let status_str: Option<String> = row.get(7)?;
-    let priority_str: Option<String> = row.get(8)?;
-    let due_date_str: Option<String> = row.get(9)?;
-    let created_str: String = row.get(10)?;
-    let updated_str: String = row.get(11)?;
+    let status_str: Option<String> = row.get(6)?;
+    let priority_str: Option<String> = row.get(7)?;
+    let due_date_str: Option<String> = row.get(8)?;
+    let created_str: String = row.get(9)?;
+    let updated_str: String = row.get(10)?;
 
     Ok(Node {
         id: row.get(0)?,
@@ -77,7 +77,7 @@ pub fn create(db: &mut Database, req: CreateNode) -> Result<Node> {
 pub fn get_by_id(db: &mut Database, id: &str) -> Result<Option<Node>> {
     let mut stmt = db.conn.prepare(
         "SELECT id, parent_id, daily_note_id, content, node_type, position, \
-         node_type, status, priority, due_date, created_at, updated_at \
+         status, priority, due_date, created_at, updated_at \
          FROM nodes WHERE id = ?1"
     )?;
     let mut rows = stmt.query(params![id])?;
@@ -87,7 +87,7 @@ pub fn get_by_id(db: &mut Database, id: &str) -> Result<Option<Node>> {
 pub fn get_children(db: &mut Database, parent_id: &str) -> Result<Vec<Node>> {
     let mut stmt = db.conn.prepare(
         "SELECT id, parent_id, daily_note_id, content, node_type, position, \
-         node_type, status, priority, due_date, created_at, updated_at \
+         status, priority, due_date, created_at, updated_at \
          FROM nodes WHERE parent_id = ?1 ORDER BY position ASC"
     )?;
     let rows = stmt.query_map(params![parent_id], |r| row_to_node(r))?;
@@ -97,7 +97,7 @@ pub fn get_children(db: &mut Database, parent_id: &str) -> Result<Vec<Node>> {
 pub fn get_roots_for_day(db: &mut Database, daily_note_id: &str) -> Result<Vec<Node>> {
     let mut stmt = db.conn.prepare(
         "SELECT id, parent_id, daily_note_id, content, node_type, position, \
-         node_type, status, priority, due_date, created_at, updated_at \
+         status, priority, due_date, created_at, updated_at \
          FROM nodes WHERE daily_note_id = ?1 AND parent_id IS NULL ORDER BY position ASC"
     )?;
     let rows = stmt.query_map(params![daily_note_id], |r| row_to_node(r))?;
@@ -105,21 +105,26 @@ pub fn get_roots_for_day(db: &mut Database, daily_note_id: &str) -> Result<Vec<N
 }
 
 pub fn get_all_tasks(db: &mut Database, status_filter: Option<&TaskStatus>) -> Result<Vec<Node>> {
-    let sql = if let Some(s) = status_filter {
-        format!(
+    let rows: Vec<Node> = if let Some(s) = status_filter {
+        let mut stmt = db.conn.prepare(
             "SELECT id, parent_id, daily_note_id, content, node_type, position, \
-             node_type, status, priority, due_date, created_at, updated_at \
-             FROM nodes WHERE node_type = 'task' AND status = '{}' ORDER BY created_at DESC",
-            s.as_str()
-        )
+             status, priority, due_date, created_at, updated_at \
+             FROM nodes WHERE node_type = 'task' AND status = ?1 ORDER BY created_at DESC"
+        )?;
+        let collected = stmt.query_map(params![s.as_str()], |r| row_to_node(r))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        collected
     } else {
-        "SELECT id, parent_id, daily_note_id, content, node_type, position, \
-         node_type, status, priority, due_date, created_at, updated_at \
-         FROM nodes WHERE node_type = 'task' ORDER BY created_at DESC".to_string()
+        let mut stmt = db.conn.prepare(
+            "SELECT id, parent_id, daily_note_id, content, node_type, position, \
+             status, priority, due_date, created_at, updated_at \
+             FROM nodes WHERE node_type = 'task' ORDER BY created_at DESC"
+        )?;
+        let collected = stmt.query_map([], |r| row_to_node(r))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        collected
     };
-    let mut stmt = db.conn.prepare(&sql)?;
-    let rows = stmt.query_map([], |r| row_to_node(r))?;
-    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    Ok(rows)
 }
 
 pub fn update(db: &mut Database, id: &str, req: UpdateNode) -> Result<()> {
