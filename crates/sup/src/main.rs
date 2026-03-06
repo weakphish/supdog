@@ -1,6 +1,7 @@
 mod cli;
 mod config;
 mod commands;
+mod output;
 
 use clap::Parser;
 use cli::args::Cli;
