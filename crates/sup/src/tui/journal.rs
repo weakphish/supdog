@@ -1,6 +1,7 @@
 // crates/sup/src/tui/journal.rs
 use anyhow::Result;
 use chrono::{Local, NaiveDate};
+use std::collections::HashSet;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -25,6 +26,8 @@ pub struct JournalState {
     pub date: NaiveDate,
     pub flat: Vec<FlatNode>,
     pub list_state: ListState,
+    full_tree: Vec<Node>,
+    collapsed: HashSet<String>,
 }
 
 impl JournalState {
@@ -34,6 +37,8 @@ impl JournalState {
             date,
             flat: vec![],
             list_state: ListState::default(),
+            full_tree: vec![],
+            collapsed: HashSet::new(),
         };
         s.reload(db)?;
         Ok(s)
@@ -45,7 +50,8 @@ impl JournalState {
         let tree = nodes::build_tree(db, roots)?;
         let mut tree_with_tags = tree;
         attach_tags(db, &mut tree_with_tags)?;
-        self.flat = flatten_tree(&tree_with_tags, 0);
+        self.full_tree = tree_with_tags;
+        self.flat = flatten_with_collapse(&self.full_tree, 0, &self.collapsed);
         let len = self.flat.len();
         if len == 0 {
             self.list_state.select(None);
@@ -208,6 +214,111 @@ impl JournalState {
             InlineEditor::edit_existing(flat.node.id.clone(), &flat.node.content)
         })
     }
+
+    /// Add a new node above the current selection
+    pub fn add_node_above(&mut self, db: &mut Database) -> Result<InlineEditor> {
+        let daily_note = daily_notes::get_or_create(db, self.date)?;
+        let (parent_id, position) = if let Some(flat) = self.selected_flat_node() {
+            (flat.node.parent_id.clone(), flat.node.position)
+        } else {
+            (None, 0)
+        };
+
+        let node = nodes::create(db, CreateNode {
+            parent_id,
+            daily_note_id: Some(daily_note.id),
+            content: String::new(),
+            node_type: NodeType::Bullet,
+            position,
+            status: None,
+            priority: None,
+            due_date: None,
+        })?;
+
+        let node_id = node.id.clone();
+        self.reload(db)?;
+        if let Some(idx) = self.flat.iter().position(|f| f.node.id == node_id) {
+            self.list_state.select(Some(idx));
+        }
+        Ok(InlineEditor::edit_existing(node_id, ""))
+    }
+
+    /// Move the selected node down (swap with sibling below)
+    pub fn move_node_down(&mut self, db: &mut Database) -> Result<()> {
+        if self.flat.is_empty() { return Ok(()); }
+        let sel = self.list_state.selected().unwrap_or(0);
+        if sel + 1 >= self.flat.len() { return Ok(()); }
+
+        let node_a = &self.flat[sel];
+        let node_b = &self.flat[sel + 1];
+
+        // Only swap if same parent (siblings)
+        if node_a.node.parent_id != node_b.node.parent_id { return Ok(()); }
+
+        let id_a = node_a.node.id.clone();
+        let id_b = node_b.node.id.clone();
+        let pos_a = node_a.node.position;
+        let pos_b = node_b.node.position;
+
+        nodes::update(db, &id_a, UpdateNode { position: Some(pos_b), content: None, status: None, priority: None, due_date: None, parent_id: None })?;
+        nodes::update(db, &id_b, UpdateNode { position: Some(pos_a), content: None, status: None, priority: None, due_date: None, parent_id: None })?;
+
+        self.reload(db)?;
+        // move selection down with the node
+        if let Some(idx) = self.flat.iter().position(|f| f.node.id == id_a) {
+            self.list_state.select(Some(idx));
+        }
+        Ok(())
+    }
+
+    /// Move the selected node up (swap with sibling above)
+    pub fn move_node_up(&mut self, db: &mut Database) -> Result<()> {
+        if self.flat.is_empty() { return Ok(()); }
+        let sel = self.list_state.selected().unwrap_or(0);
+        if sel == 0 { return Ok(()); }
+
+        let node_a = &self.flat[sel];
+        let node_b = &self.flat[sel - 1];
+
+        if node_a.node.parent_id != node_b.node.parent_id { return Ok(()); }
+
+        let id_a = node_a.node.id.clone();
+        let id_b = node_b.node.id.clone();
+        let pos_a = node_a.node.position;
+        let pos_b = node_b.node.position;
+
+        nodes::update(db, &id_a, UpdateNode { position: Some(pos_b), content: None, status: None, priority: None, due_date: None, parent_id: None })?;
+        nodes::update(db, &id_b, UpdateNode { position: Some(pos_a), content: None, status: None, priority: None, due_date: None, parent_id: None })?;
+
+        self.reload(db)?;
+        if let Some(idx) = self.flat.iter().position(|f| f.node.id == id_a) {
+            self.list_state.select(Some(idx));
+        }
+        Ok(())
+    }
+
+    /// Toggle collapse/expand of children for the selected node
+    pub fn toggle_collapse(&mut self) {
+        if let Some(flat) = self.selected_flat_node() {
+            let id = flat.node.id.clone();
+            let has_children = !flat.node.children.is_empty();
+            if has_children {
+                if self.collapsed.contains(&id) {
+                    self.collapsed.remove(&id);
+                } else {
+                    self.collapsed.insert(id);
+                }
+                self.flat = flatten_with_collapse(&self.full_tree, 0, &self.collapsed);
+                let len = self.flat.len();
+                if len == 0 {
+                    self.list_state.select(None);
+                } else {
+                    let sel = self.list_state.selected().unwrap_or(0).min(len - 1);
+                    self.list_state.select(Some(sel));
+                }
+            }
+        }
+    }
 }
 
 fn attach_tags(db: &mut Database, nodes: &mut Vec<Node>) -> Result<()> {
@@ -219,14 +330,14 @@ fn attach_tags(db: &mut Database, nodes: &mut Vec<Node>) -> Result<()> {
     Ok(())
 }
 
-fn flatten_tree(tree: &[Node], depth: usize) -> Vec<FlatNode> {
+fn flatten_with_collapse(tree: &[Node], depth: usize, collapsed: &HashSet<String>) -> Vec<FlatNode> {
     let mut result = vec![];
     for node in tree {
-        result.push(FlatNode {
-            node: node.clone(),
-            depth,
-        });
-        result.extend(flatten_tree(&node.children, depth + 1));
+        result.push(FlatNode { node: node.clone(), depth });
+        // Only recurse if this node is not collapsed
+        if !collapsed.contains(&node.id) {
+            result.extend(flatten_with_collapse(&node.children, depth + 1, collapsed));
+        }
     }
     result
 }

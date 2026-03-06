@@ -51,6 +51,10 @@ pub enum Message {
     EditorKey(KeyEvent),
     StartEditSelected,
     AddNodeBelow,
+    AddNodeAbove,
+    MoveNodeDown,
+    MoveNodeUp,
+    CollapseExpand,
     DeleteSelected,
     IndentSelected,
     UnindentSelected,
@@ -161,6 +165,10 @@ impl App {
                     KeyCode::Char('[') => Message::JournalPrevDay,
                     KeyCode::Char(']') => Message::JournalNextDay,
                     KeyCode::Char('o') => Message::AddNodeBelow,
+                    KeyCode::Char('O') => Message::AddNodeAbove,
+                    KeyCode::Char('J') => Message::MoveNodeDown,
+                    KeyCode::Char('K') => Message::MoveNodeUp,
+                    KeyCode::Char('h') | KeyCode::Char('l') => Message::CollapseExpand,
                     KeyCode::Enter => Message::StartEditSelected,
                     KeyCode::Tab => {
                         if self.view == View::Split {
@@ -199,6 +207,24 @@ impl App {
                     Ok(ed) => self.editor = Some(ed),
                     Err(_) => {}
                 }
+            }
+            Message::AddNodeAbove => {
+                let db = &mut self.db;
+                match self.journal.add_node_above(db) {
+                    Ok(ed) => self.editor = Some(ed),
+                    Err(_) => {}
+                }
+            }
+            Message::MoveNodeDown => {
+                let db = &mut self.db;
+                let _ = self.journal.move_node_down(db);
+            }
+            Message::MoveNodeUp => {
+                let db = &mut self.db;
+                let _ = self.journal.move_node_up(db);
+            }
+            Message::CollapseExpand => {
+                self.journal.toggle_collapse();
             }
             Message::StartEditSelected => {
                 self.editor = self.journal.start_edit_selected();
