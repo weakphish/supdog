@@ -11,6 +11,7 @@ use sup_core::queries::nodes;
 use crate::tui::editor::InlineEditor;
 use crate::tui::events::AppEvent;
 use crate::tui::journal::JournalState;
+use crate::tui::search_overlay::{SearchMode, SearchOverlay};
 use crate::tui::tasks_view::TasksState;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -34,6 +35,8 @@ pub struct App {
     pub tasks_view: TasksState,
     pub active_pane: Pane,
     pub editor: Option<InlineEditor>,
+    pub search: SearchOverlay,
+    pub link_source_id: Option<String>,
 }
 
 pub enum Message {
@@ -55,6 +58,14 @@ pub enum Message {
     TasksDown,
     TasksCycleStatus,
     SwitchPane,
+    SearchOpen,
+    SearchClose,
+    SearchChar(char),
+    SearchBackspace,
+    SearchUp,
+    SearchDown,
+    SearchSelect,
+    LinkOpen,
     Noop,
 }
 
@@ -70,19 +81,33 @@ impl App {
             tasks_view,
             active_pane: Pane::Journal,
             editor: None,
+            search: SearchOverlay::new(),
+            link_source_id: None,
         })
     }
 
     pub fn handle_event(&self, event: AppEvent) -> Message {
         match event {
             AppEvent::Key(k) => {
-                // If editing, route keys to editor handler
+                // Search overlay is highest priority
+                if self.search.active {
+                    return match k.code {
+                        KeyCode::Esc => Message::SearchClose,
+                        KeyCode::Enter => Message::SearchSelect,
+                        KeyCode::Char('j') => Message::SearchDown,
+                        KeyCode::Char('k') => Message::SearchUp,
+                        KeyCode::Char(c) => Message::SearchChar(c),
+                        KeyCode::Backspace => Message::SearchBackspace,
+                        _ => Message::Noop,
+                    };
+                }
+                // Editor is second priority
                 if self.editor.is_some() {
-                    match k.code {
-                        KeyCode::Enter => return Message::CommitEdit,
-                        KeyCode::Esc => return Message::CancelEdit,
-                        _ => return Message::EditorKey(k),
-                    }
+                    return match k.code {
+                        KeyCode::Enter => Message::CommitEdit,
+                        KeyCode::Esc => Message::CancelEdit,
+                        _ => Message::EditorKey(k),
+                    };
                 }
                 // Normal mode
                 match k.code {
@@ -90,6 +115,8 @@ impl App {
                     KeyCode::Char('1') => Message::SwitchView(View::Journal),
                     KeyCode::Char('2') => Message::SwitchView(View::Tasks),
                     KeyCode::Char('3') => Message::SwitchView(View::Split),
+                    KeyCode::Char('/') => Message::SearchOpen,
+                    KeyCode::Char('L') | KeyCode::Char('l') => Message::LinkOpen,
                     KeyCode::Char('j') => {
                         if self.view == View::Tasks ||
                            (self.view == View::Split && self.active_pane == Pane::Tasks) {
@@ -200,6 +227,44 @@ impl App {
                     Pane::Tasks => Pane::Journal,
                 };
             }
+            Message::SearchOpen => {
+                self.search.open(SearchMode::Navigate);
+            }
+            Message::LinkOpen => {
+                let source_id = self.journal.selected_flat_node()
+                    .map(|f| f.node.id.clone());
+                if let Some(id) = source_id {
+                    self.link_source_id = Some(id);
+                    self.search.open(SearchMode::Link);
+                }
+            }
+            Message::SearchClose => {
+                self.search.close();
+                self.link_source_id = None;
+            }
+            Message::SearchChar(c) => {
+                let db = &mut self.db;
+                self.search.push_char(c, db);
+            }
+            Message::SearchBackspace => {
+                let db = &mut self.db;
+                self.search.pop_char(db);
+            }
+            Message::SearchUp => self.search.move_up(),
+            Message::SearchDown => self.search.move_down(),
+            Message::SearchSelect => {
+                if self.search.mode == SearchMode::Link {
+                    if let (Some(source_id), Some(target)) =
+                        (&self.link_source_id, self.search.selected_node())
+                    {
+                        let target_id = target.id.clone();
+                        let source_id = source_id.clone();
+                        let _ = sup_core::queries::links::create_link(&mut self.db, &source_id, &target_id);
+                    }
+                }
+                self.search.close();
+                self.link_source_id = None;
+            }
             Message::Noop => {}
         }
     }
@@ -232,13 +297,18 @@ impl App {
             "EDITING — Enter commit  Esc cancel"
         } else {
             match self.view {
-                View::Journal => "Journal [1]  Tasks [2]  Split [3]  j/k nav  [/] days  o add  Enter edit  d del  Tab indent  q quit",
-                View::Tasks =>   "Journal [1]  Tasks [2]  Split [3]  j/k nav  c cycle status  q quit",
-                View::Split =>   "Journal [1]  Tasks [2]  Split [3]  Tab switch pane  j/k nav  c cycle  q quit",
+                View::Journal => "Journal [1]  Tasks [2]  Split [3]  j/k  [/] days  o add  Enter edit  d del  / search  L link  q quit",
+                View::Tasks =>   "Journal [1]  Tasks [2]  Split [3]  j/k  c cycle status  q quit",
+                View::Split =>   "Journal [1]  Tasks [2]  Split [3]  Tab switch pane  j/k  c cycle  q quit",
             }
         };
         let status = Paragraph::new(Line::from(status_text))
             .style(Style::default().bg(Color::DarkGray).fg(Color::White));
         frame.render_widget(status, chunks[1]);
+
+        // Render search overlay on top if active
+        if self.search.active {
+            crate::tui::search_overlay::render(&mut self.search, frame);
+        }
     }
 }
