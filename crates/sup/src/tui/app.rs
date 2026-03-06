@@ -116,7 +116,7 @@ impl App {
                     KeyCode::Char('2') => Message::SwitchView(View::Tasks),
                     KeyCode::Char('3') => Message::SwitchView(View::Split),
                     KeyCode::Char('/') => Message::SearchOpen,
-                    KeyCode::Char('L') | KeyCode::Char('l') => Message::LinkOpen,
+                    KeyCode::Char('L') => Message::LinkOpen,
                     KeyCode::Char('j') => {
                         if self.view == View::Tasks ||
                            (self.view == View::Split && self.active_pane == Pane::Tasks) {
