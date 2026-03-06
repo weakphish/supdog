@@ -12,6 +12,7 @@ use crate::tui::editor::InlineEditor;
 use crate::tui::events::AppEvent;
 use crate::tui::journal::JournalState;
 use crate::tui::search_overlay::{SearchMode, SearchOverlay};
+use crate::tui::tag_editor::TagEditor;
 use crate::tui::tasks_view::TasksState;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -36,6 +37,7 @@ pub struct App {
     pub active_pane: Pane,
     pub editor: Option<InlineEditor>,
     pub search: SearchOverlay,
+    pub tag_editor: TagEditor,
     pub link_source_id: Option<String>,
 }
 
@@ -66,6 +68,14 @@ pub enum Message {
     SearchDown,
     SearchSelect,
     LinkOpen,
+    TagEditorOpen,
+    TagEditorClose,
+    TagEditorChar(char),
+    TagEditorBackspace,
+    TagEditorAdd,
+    TagEditorRemove,
+    TagEditorUp,
+    TagEditorDown,
     Noop,
 }
 
@@ -82,6 +92,7 @@ impl App {
             active_pane: Pane::Journal,
             editor: None,
             search: SearchOverlay::new(),
+            tag_editor: TagEditor::new(),
             link_source_id: None,
         })
     }
@@ -107,6 +118,19 @@ impl App {
                         KeyCode::Enter => Message::CommitEdit,
                         KeyCode::Esc => Message::CancelEdit,
                         _ => Message::EditorKey(k),
+                    };
+                }
+                // Tag editor is third priority
+                if self.tag_editor.active {
+                    return match k.code {
+                        KeyCode::Esc => Message::TagEditorClose,
+                        KeyCode::Enter => Message::TagEditorAdd,
+                        KeyCode::Char('d') => Message::TagEditorRemove,
+                        KeyCode::Char('j') => Message::TagEditorDown,
+                        KeyCode::Char('k') => Message::TagEditorUp,
+                        KeyCode::Char(c) => Message::TagEditorChar(c),
+                        KeyCode::Backspace => Message::TagEditorBackspace,
+                        _ => Message::Noop,
                     };
                 }
                 // Normal mode
@@ -147,6 +171,7 @@ impl App {
                     }
                     KeyCode::BackTab => Message::UnindentSelected,
                     KeyCode::Char('d') => Message::DeleteSelected,
+                    KeyCode::Char('t') => Message::TagEditorOpen,
                     _ => Message::Noop,
                 }
             }
@@ -265,6 +290,34 @@ impl App {
                 self.search.close();
                 self.link_source_id = None;
             }
+            Message::TagEditorOpen => {
+                if let Some(flat) = self.journal.selected_flat_node() {
+                    let node_id = flat.node.id.clone();
+                    let db = &mut self.db;
+                    let _ = self.tag_editor.open(db, node_id);
+                }
+            }
+            Message::TagEditorClose => {
+                self.tag_editor.close();
+                let db = &mut self.db;
+                let _ = self.journal.reload(db);
+            }
+            Message::TagEditorChar(c) => {
+                self.tag_editor.push_char(c);
+            }
+            Message::TagEditorBackspace => {
+                self.tag_editor.pop_char();
+            }
+            Message::TagEditorAdd => {
+                let db = &mut self.db;
+                let _ = self.tag_editor.add_tag(db);
+            }
+            Message::TagEditorRemove => {
+                let db = &mut self.db;
+                let _ = self.tag_editor.remove_selected_tag(db);
+            }
+            Message::TagEditorUp => self.tag_editor.move_up(),
+            Message::TagEditorDown => self.tag_editor.move_down(),
             Message::Noop => {}
         }
     }
@@ -309,6 +362,11 @@ impl App {
         // Render search overlay on top if active
         if self.search.active {
             crate::tui::search_overlay::render(&mut self.search, frame);
+        }
+
+        // Render tag editor overlay on top if active
+        if self.tag_editor.active {
+            crate::tui::tag_editor::render(&mut self.tag_editor, frame);
         }
     }
 }

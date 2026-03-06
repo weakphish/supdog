@@ -4,6 +4,7 @@ pub mod editor;
 pub mod events;
 pub mod journal;
 pub mod search_overlay;
+pub mod tag_editor;
 pub mod tasks_view;
 
 use anyhow::Result;
