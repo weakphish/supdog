@@ -129,7 +129,7 @@ pub fn render(state: &mut TagEditor, frame: &mut Frame) {
     frame.render_widget(input, chunks[1]);
 
     // Hint
-    let hint = Paragraph::new("Esc to close")
+    let hint = Paragraph::new("j/k navigate  d remove  Esc close")
         .style(Style::default().fg(Color::DarkGray));
     frame.render_widget(hint, chunks[2]);
 }
