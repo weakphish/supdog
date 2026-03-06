@@ -1,0 +1,17 @@
+[package]
+name = "sup"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "sup"
+path = "src/main.rs"
+
+[dependencies]
+sup-core = { path = "../sup-core" }
+anyhow = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+serde_json = { workspace = true }
+ratatui = "0.29"
+crossterm = "0.28"
+dirs = "5"

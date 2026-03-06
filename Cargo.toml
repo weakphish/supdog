@@ -1,0 +1,12 @@
+[workspace]
+members = ["crates/sup-core", "crates/sup"]
+resolver = "2"
+
+[workspace.dependencies]
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite_migration = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
