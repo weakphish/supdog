@@ -30,8 +30,7 @@ pub fn dispatch(mut db: Database, cli: Cli) -> Result<()> {
             search::run(&mut db, query, cli.json)
         }
         Command::Tui => {
-            println!("TUI not yet implemented");
-            Ok(())
+            crate::tui::run(db)
         }
     }
 }

@@ -2,6 +2,7 @@ mod cli;
 mod config;
 mod commands;
 mod output;
+mod tui;
 
 use clap::Parser;
 use cli::args::Cli;
