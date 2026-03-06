@@ -45,22 +45,26 @@ impl InlineEditor {
                 self.cursor = prev;
                 EditorResult::Continue
             }
-            KeyCode::Left if self.cursor > 0 => {
-                let prev = self.content[..self.cursor]
-                    .char_indices()
-                    .last()
-                    .map(|(i, _)| i)
-                    .unwrap_or(0);
-                self.cursor = prev;
+            KeyCode::Left => {
+                if self.cursor > 0 {
+                    let prev = self.content[..self.cursor]
+                        .char_indices()
+                        .last()
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
+                    self.cursor = prev;
+                }
                 EditorResult::Continue
             }
-            KeyCode::Right if self.cursor < self.content.len() => {
-                let next = self.content[self.cursor..]
-                    .char_indices()
-                    .nth(1)
-                    .map(|(i, _)| self.cursor + i)
-                    .unwrap_or(self.content.len());
-                self.cursor = next;
+            KeyCode::Right => {
+                if self.cursor < self.content.len() {
+                    let next_char_len = self.content[self.cursor..]
+                        .chars()
+                        .next()
+                        .map(|c| c.len_utf8())
+                        .unwrap_or(0);
+                    self.cursor += next_char_len;
+                }
                 EditorResult::Continue
             }
             _ => EditorResult::Continue,

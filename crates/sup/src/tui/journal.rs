@@ -158,6 +158,7 @@ impl JournalState {
 
     /// Unindent: promote selected node to sibling of its parent
     pub fn unindent_selected(&mut self, db: &mut Database) -> Result<()> {
+        if self.flat.is_empty() { return Ok(()); }
         let sel = self.list_state.selected().unwrap_or(0);
         let node = self.flat[sel].node.clone();
         if node.parent_id.is_none() { return Ok(()); } // already root
@@ -184,7 +185,7 @@ impl JournalState {
 
     /// Commit an editor result: update or finalize the node
     pub fn commit_edit(&mut self, db: &mut Database, node_id: &str, content: String) -> Result<()> {
-        if content.is_empty() {
+        if content.trim().is_empty() {
             // empty content = delete the node
             nodes::delete(db, node_id)?;
         } else {
