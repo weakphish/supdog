@@ -11,6 +11,7 @@ use sup_core::queries::nodes;
 use crate::tui::editor::InlineEditor;
 use crate::tui::events::AppEvent;
 use crate::tui::journal::JournalState;
+use crate::tui::tasks_view::TasksState;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum View {
@@ -19,11 +20,19 @@ pub enum View {
     Split,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pane {
+    Journal,
+    Tasks,
+}
+
 pub struct App {
     pub db: Database,
     pub view: View,
     pub should_quit: bool,
     pub journal: JournalState,
+    pub tasks_view: TasksState,
+    pub active_pane: Pane,
     pub editor: Option<InlineEditor>,
 }
 
@@ -42,17 +51,24 @@ pub enum Message {
     UnindentSelected,
     CommitEdit,
     CancelEdit,
+    TasksUp,
+    TasksDown,
+    TasksCycleStatus,
+    SwitchPane,
     Noop,
 }
 
 impl App {
     pub fn new(mut db: Database) -> Result<Self> {
         let journal = JournalState::new(&mut db)?;
+        let tasks_view = TasksState::new(&mut db)?;
         Ok(Self {
             db,
             view: View::Journal,
             should_quit: false,
             journal,
+            tasks_view,
+            active_pane: Pane::Journal,
             editor: None,
         })
     }
@@ -74,13 +90,34 @@ impl App {
                     KeyCode::Char('1') => Message::SwitchView(View::Journal),
                     KeyCode::Char('2') => Message::SwitchView(View::Tasks),
                     KeyCode::Char('3') => Message::SwitchView(View::Split),
-                    KeyCode::Char('j') => Message::JournalDown,
-                    KeyCode::Char('k') => Message::JournalUp,
+                    KeyCode::Char('j') => {
+                        if self.view == View::Tasks ||
+                           (self.view == View::Split && self.active_pane == Pane::Tasks) {
+                            Message::TasksDown
+                        } else {
+                            Message::JournalDown
+                        }
+                    }
+                    KeyCode::Char('k') => {
+                        if self.view == View::Tasks ||
+                           (self.view == View::Split && self.active_pane == Pane::Tasks) {
+                            Message::TasksUp
+                        } else {
+                            Message::JournalUp
+                        }
+                    }
+                    KeyCode::Char('c') => Message::TasksCycleStatus,
                     KeyCode::Char('[') => Message::JournalPrevDay,
                     KeyCode::Char(']') => Message::JournalNextDay,
                     KeyCode::Char('o') => Message::AddNodeBelow,
                     KeyCode::Enter => Message::StartEditSelected,
-                    KeyCode::Tab => Message::IndentSelected,
+                    KeyCode::Tab => {
+                        if self.view == View::Split {
+                            Message::SwitchPane
+                        } else {
+                            Message::IndentSelected
+                        }
+                    }
                     KeyCode::BackTab => Message::UnindentSelected,
                     KeyCode::Char('d') => Message::DeleteSelected,
                     _ => Message::Noop,
@@ -151,6 +188,18 @@ impl App {
                 let db = &mut self.db;
                 let _ = self.journal.unindent_selected(db);
             }
+            Message::TasksUp => self.tasks_view.move_up(),
+            Message::TasksDown => self.tasks_view.move_down(),
+            Message::TasksCycleStatus => {
+                let db = &mut self.db;
+                let _ = self.tasks_view.cycle_status(db);
+            }
+            Message::SwitchPane => {
+                self.active_pane = match self.active_pane {
+                    Pane::Journal => Pane::Tasks,
+                    Pane::Tasks => Pane::Journal,
+                };
+            }
             Message::Noop => {}
         }
     }
@@ -167,9 +216,7 @@ impl App {
                 crate::tui::journal::render(&mut self.journal, self.editor.as_ref(), frame, chunks[0]);
             }
             View::Tasks => {
-                let placeholder = ratatui::widgets::Paragraph::new("Tasks view (coming soon)")
-                    .block(ratatui::widgets::Block::bordered().title("Tasks"));
-                frame.render_widget(placeholder, chunks[0]);
+                crate::tui::tasks_view::render(&mut self.tasks_view, frame, chunks[0]);
             }
             View::Split => {
                 let split = Layout::default()
@@ -177,16 +224,18 @@ impl App {
                     .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
                     .split(chunks[0]);
                 crate::tui::journal::render(&mut self.journal, self.editor.as_ref(), frame, split[0]);
-                let placeholder = ratatui::widgets::Paragraph::new("Tasks view (coming soon)")
-                    .block(ratatui::widgets::Block::bordered().title("Tasks"));
-                frame.render_widget(placeholder, split[1]);
+                crate::tui::tasks_view::render(&mut self.tasks_view, frame, split[1]);
             }
         }
 
         let status_text = if self.editor.is_some() {
             "EDITING — Enter commit  Esc cancel"
         } else {
-            "Journal [1]  Tasks [2]  Split [3]  j/k navigate  [/] days  o add  Enter edit  d delete  Tab/S-Tab indent  q quit"
+            match self.view {
+                View::Journal => "Journal [1]  Tasks [2]  Split [3]  j/k nav  [/] days  o add  Enter edit  d del  Tab indent  q quit",
+                View::Tasks =>   "Journal [1]  Tasks [2]  Split [3]  j/k nav  c cycle status  q quit",
+                View::Split =>   "Journal [1]  Tasks [2]  Split [3]  Tab switch pane  j/k nav  c cycle  q quit",
+            }
         };
         let status = Paragraph::new(Line::from(status_text))
             .style(Style::default().bg(Color::DarkGray).fg(Color::White));
