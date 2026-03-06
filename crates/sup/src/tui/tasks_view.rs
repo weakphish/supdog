@@ -67,6 +67,7 @@ impl TasksState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn selected_task(&self) -> Option<&Node> {
         self.list_state.selected().and_then(|i| self.tasks.get(i))
     }
