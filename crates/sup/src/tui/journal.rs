@@ -89,6 +89,7 @@ impl JournalState {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn selected_flat_node(&self) -> Option<&FlatNode> {
         self.list_state.selected().and_then(|i| self.flat.get(i))
     }
