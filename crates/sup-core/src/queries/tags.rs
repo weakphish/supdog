@@ -42,15 +42,16 @@ pub fn get_or_create(db: &mut Database, full_path: &str) -> Result<Tag> {
 pub fn get_by_name(db: &mut Database, name: &str) -> Result<Option<Tag>> {
     let mut stmt = db.conn.prepare("SELECT id, name, parent_id FROM tags WHERE name = ?1")?;
     let mut rows = stmt.query(params![name])?;
-    Ok(rows.next()?.map(|r| row_to_tag(r).unwrap()))
+    Ok(rows.next()?.map(|r| row_to_tag(r)).transpose()?)
 }
 
 /// Returns the tag with the given name AND all its descendants (e.g. searching
 /// "projects" returns "projects", "projects/foo", "projects/foo/bar")
 pub fn get_all_with_prefix(db: &mut Database, prefix: &str) -> Result<Vec<Tag>> {
-    let like = format!("{}/%", prefix);
+    let escaped = prefix.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+    let like = format!("{}/%", escaped);
     let mut stmt = db.conn.prepare(
-        "SELECT id, name, parent_id FROM tags WHERE name = ?1 OR name LIKE ?2 ORDER BY name"
+        "SELECT id, name, parent_id FROM tags WHERE name = ?1 OR name LIKE ?2 ESCAPE '\\' ORDER BY name"
     )?;
     let rows = stmt.query_map(params![prefix, like], |r| row_to_tag(r))?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
