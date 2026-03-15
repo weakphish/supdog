@@ -35,14 +35,22 @@
 
   let newBlockInput = $state('');
   let newBlockEl: HTMLInputElement | undefined = $state();
+  let newBlockError = $state<string | null>(null);
 
   async function createNewBlock() {
     const content = newBlockInput.trim();
     if (!content) return;
+    newBlockError = null;
+    const saved = newBlockInput;
     newBlockInput = '';
-    const pos = journal.blocks.length;
-    await journal.addBlock(null, content, 'bullet', pos);
-    newBlockEl?.focus();
+    try {
+      const pos = journal.blocks.length;
+      await journal.addBlock(null, content, 'bullet', pos);
+      newBlockEl?.focus();
+    } catch (e) {
+      newBlockInput = saved;
+      newBlockError = e instanceof Error ? e.message : String(e);
+    }
   }
 
   function handleNewBlockKeydown(e: KeyboardEvent) {
@@ -145,6 +153,9 @@
     onkeydown={handleNewBlockKeydown}
     autofocus={journal.blocks.length === 0}
   />
+  {#if newBlockError}
+    <p class="block-error">{newBlockError}</p>
+  {/if}
 {/if}
 
 <style>
@@ -167,5 +178,10 @@
   }
   .new-block-input::placeholder {
     color: var(--text-muted);
+  }
+  .block-error {
+    font-size: var(--text-xs);
+    color: #c00;
+    margin-top: 4px;
   }
 </style>

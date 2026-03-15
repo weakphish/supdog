@@ -86,7 +86,7 @@
       </span>
     {/if}
 
-    {#each block.tags as tag}
+    {#each (block.tags ?? []) as tag}
       <TagPill name={tag} />
     {/each}
   </div>

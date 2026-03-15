@@ -15,8 +15,8 @@
 <div class="block-tree" style="padding-left: {depth > 0 ? 'var(--indent)' : '0'}">
   {#each blocks as block (block.id)}
     <BlockItem {block} {onedit} {ondelete} {onindent} {onoutdent} />
-    {#if block.children.length > 0}
-      <svelte:self blocks={block.children} depth={depth + 1} {onedit} {ondelete} {onindent} {onoutdent} />
+    {#if (block.children ?? []).length > 0}
+      <svelte:self blocks={block.children ?? []} depth={depth + 1} {onedit} {ondelete} {onindent} {onoutdent} />
     {/if}
   {/each}
 </div>
