@@ -17,7 +17,8 @@
   function prev() { void goto(`/journal/${offsetDate(-1)}`); }
   function next() { void goto(`/journal/${offsetDate(1)}`); }
   function goToday() {
-    const today = new Date().toISOString().split('T')[0];
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     void goto(`/journal/${today}`);
   }
 </script>

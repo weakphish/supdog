@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import { goto } from '$app/navigation';
   import BlockTree from '$lib/components/BlockTree.svelte';
   import DateNav from '$lib/components/DateNav.svelte';
   import { journal } from '$lib/stores/journal.svelte';
@@ -25,12 +26,12 @@
     if (e.key === 'ArrowLeft' && e.altKey) {
       const d = new Date(page.params.date + 'T00:00:00');
       d.setDate(d.getDate() - 1);
-      window.location.href = `/journal/${d.toISOString().split('T')[0]}`;
+      void goto(`/journal/${d.toISOString().split('T')[0]}`);
     }
     if (e.key === 'ArrowRight' && e.altKey) {
       const d = new Date(page.params.date + 'T00:00:00');
       d.setDate(d.getDate() + 1);
-      window.location.href = `/journal/${d.toISOString().split('T')[0]}`;
+      void goto(`/journal/${d.toISOString().split('T')[0]}`);
     }
   }
 </script>

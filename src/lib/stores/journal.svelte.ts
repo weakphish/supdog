@@ -16,12 +16,16 @@ export const journal = {
     loading = true;
     currentDate = date;
     try {
-      dailyNote = await getOrCreateDailyNote(date);
-      blocks = await getBlocksForDate(date);
+      const note = await getOrCreateDailyNote(date);
+      if (currentDate !== date) return; // navigated away, discard
+      dailyNote = note;
+      const b = await getBlocksForDate(date);
+      if (currentDate !== date) return; // navigated away, discard
+      blocks = b;
     } catch (e) {
       console.error('Failed to load journal:', e);
     } finally {
-      loading = false;
+      if (currentDate === date) loading = false;
     }
   },
 
