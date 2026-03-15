@@ -16,6 +16,12 @@
   let editing = $state(false);
   let editContent = $state(block.content);
 
+  $effect(() => {
+    if (!editing) {
+      editContent = block.content;
+    }
+  });
+
   function startEdit() {
     editing = true;
     editContent = block.content;

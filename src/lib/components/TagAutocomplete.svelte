@@ -18,12 +18,13 @@
 
   // Reset selection when filtered results change
   $effect(() => {
-    filtered; // subscribe to filtered
-    selectedIndex = 0;
+    // Reset selectedIndex whenever filtered list changes
+    if (filtered.length > 0) selectedIndex = Math.min(selectedIndex, filtered.length - 1);
+    else selectedIndex = 0;
   });
 
   onMount(() => {
-    getAllTags().then(t => allTags = t);
+    getAllTags().then(t => allTags = t).catch(e => console.error('Failed to load tags:', e));
   });
 
   export function handleKeydown(e: KeyboardEvent): boolean {
@@ -49,7 +50,7 @@
     </button>
   {/each}
   {#if filtered.length === 0 && query.length > 0}
-    <button class="autocomplete-item create" onclick={async () => { const tag = await createTag(query); onselect(tag); }}>Create #{query}</button>
+    <button class="autocomplete-item create" onclick={() => void createTag(query).then(tag => onselect(tag)).catch(e => console.error('Failed to create tag:', e))}>Create #{query}</button>
   {/if}
 </div>
 

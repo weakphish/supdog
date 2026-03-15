@@ -12,9 +12,13 @@
   let selectedIndex = $state(0);
 
   $effect(() => {
-    const q = query; // read prop to subscribe
+    const q = query;
     if (q.length >= 2) {
-      void search(q).then(r => { results = r.slice(0, 8); selectedIndex = 0; });
+      void search(q).then(r => {
+        if (query !== q) return; // stale guard
+        results = r.slice(0, 8);
+        selectedIndex = 0;
+      });
     } else {
       results = [];
     }

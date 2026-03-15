@@ -44,17 +44,27 @@
   }
 
   async function handleTagSelect(tag: { id: string; name: string }) {
-    content = content.replace(/#[\w/]*$/, '').trim();
-    await addTagToBlock(blockId, tag.id);
-    mode = 'normal';
-    inputEl?.focus();
+    try {
+      content = content.replace(/#[\w/]*$/, '').trim();
+      await addTagToBlock(blockId, tag.id);
+      mode = 'normal';
+      inputEl?.focus();
+    } catch (e) {
+      console.error('Failed to add tag:', e);
+      mode = 'normal';
+    }
   }
 
   async function handleLinkSelect(targetBlockId: string) {
-    content = content.replace(/\[\[[^\]]*$/, '').trim();
-    await createLink(blockId, targetBlockId);
-    mode = 'normal';
-    inputEl?.focus();
+    try {
+      content = content.replace(/\[\[[^\]]*$/, '').trim();
+      await createLink(blockId, targetBlockId);
+      mode = 'normal';
+      inputEl?.focus();
+    } catch (e) {
+      console.error('Failed to create link:', e);
+      mode = 'normal';
+    }
   }
 
   let tagAutocomplete: { handleKeydown: (e: KeyboardEvent) => boolean } | undefined;
