@@ -30,7 +30,7 @@ pub fn create_mind_map_impl(conn: &Connection, name: &str) -> Result<MindMap, St
 
 pub fn get_mind_maps_impl(conn: &Connection) -> Result<Vec<MindMap>, String> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, created_at, updated_at FROM mind_maps ORDER BY created_at"
+        "SELECT id, name, created_at, updated_at FROM mind_maps ORDER BY updated_at DESC"
     ).map_err(|e| e.to_string())?;
 
     let maps = stmt.query_map([], |row| Ok(MindMap {
