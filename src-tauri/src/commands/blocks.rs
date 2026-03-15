@@ -88,8 +88,11 @@ pub fn update_block_impl(conn: &Connection, id: &str, content: Option<&str>, blo
     if let Some(v) = due_date { values.push(Box::new(v.to_string())); sets.push(format!("due_date = ?{}", values.len())); }
     values.push(Box::new(id.to_string()));
     let sql = format!("UPDATE blocks SET {} WHERE id = ?{}", sets.join(", "), values.len());
-    conn.execute(&sql, rusqlite::params_from_iter(values.iter().map(|v| v.as_ref())))
+    let rows = conn.execute(&sql, rusqlite::params_from_iter(values.iter().map(|v| v.as_ref())))
         .map_err(|e| e.to_string())?;
+    if rows == 0 {
+        return Err(format!("block not found: {}", id));
+    }
     Ok(())
 }
 
@@ -168,14 +171,15 @@ mod tests {
     use crate::commands::daily_notes::get_or_create_daily_note_impl;
     use tempfile::TempDir;
 
-    fn test_conn() -> Connection {
+    fn test_conn() -> (TempDir, Connection) {
         let tmp = TempDir::new().unwrap();
-        db::init_db(tmp.path().to_path_buf()).unwrap()
+        let conn = db::init_db(tmp.path().to_path_buf()).unwrap();
+        (tmp, conn)
     }
 
     #[test]
     fn test_create_and_get_blocks() {
-        let conn = test_conn();
+        let (_tmp, conn) = test_conn();
         let note = get_or_create_daily_note_impl(&conn, "2026-03-15").unwrap();
         let block = create_block_impl(&conn, &note.id, None, "hello world", "bullet", 0).unwrap();
         assert_eq!(block.content, "hello world");
@@ -186,7 +190,7 @@ mod tests {
 
     #[test]
     fn test_nested_blocks() {
-        let conn = test_conn();
+        let (_tmp, conn) = test_conn();
         let note = get_or_create_daily_note_impl(&conn, "2026-03-15").unwrap();
         let parent = create_block_impl(&conn, &note.id, None, "parent", "bullet", 0).unwrap();
         let child = create_block_impl(&conn, &note.id, Some(&parent.id), "child", "bullet", 0).unwrap();
@@ -199,7 +203,7 @@ mod tests {
 
     #[test]
     fn test_update_block() {
-        let conn = test_conn();
+        let (_tmp, conn) = test_conn();
         let note = get_or_create_daily_note_impl(&conn, "2026-03-15").unwrap();
         let block = create_block_impl(&conn, &note.id, None, "original", "bullet", 0).unwrap();
         update_block_impl(&conn, &block.id, Some("updated"), None, None, None, None).unwrap();
@@ -209,7 +213,7 @@ mod tests {
 
     #[test]
     fn test_delete_block() {
-        let conn = test_conn();
+        let (_tmp, conn) = test_conn();
         let note = get_or_create_daily_note_impl(&conn, "2026-03-15").unwrap();
         let block = create_block_impl(&conn, &note.id, None, "to delete", "bullet", 0).unwrap();
         delete_block_impl(&conn, &block.id).unwrap();
@@ -219,7 +223,7 @@ mod tests {
 
     #[test]
     fn test_reorder_blocks() {
-        let conn = test_conn();
+        let (_tmp, conn) = test_conn();
         let note = get_or_create_daily_note_impl(&conn, "2026-03-15").unwrap();
         let a = create_block_impl(&conn, &note.id, None, "a", "bullet", 0).unwrap();
         let b = create_block_impl(&conn, &note.id, None, "b", "bullet", 1).unwrap();

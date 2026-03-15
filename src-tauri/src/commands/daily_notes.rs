@@ -39,14 +39,15 @@ mod tests {
     use crate::db;
     use tempfile::TempDir;
 
-    fn test_conn() -> Connection {
+    fn test_conn() -> (TempDir, Connection) {
         let tmp = TempDir::new().unwrap();
-        db::init_db(tmp.path().to_path_buf()).unwrap()
+        let conn = db::init_db(tmp.path().to_path_buf()).unwrap();
+        (tmp, conn)
     }
 
     #[test]
     fn test_get_or_create_daily_note() {
-        let conn = test_conn();
+        let (_tmp, conn) = test_conn();
         let note = get_or_create_daily_note_impl(&conn, "2026-03-15").unwrap();
         assert_eq!(note.date, "2026-03-15");
         let note2 = get_or_create_daily_note_impl(&conn, "2026-03-15").unwrap();
