@@ -37,6 +37,9 @@ export const addTagToBlock = (blockId: string, tagId: string) =>
 export const removeTagFromBlock = (blockId: string, tagId: string) =>
   invoke<void>('remove_tag_from_block', { block_id: blockId, tag_id: tagId });
 
+export const getTagsForBlock = (blockId: string) =>
+  invoke<Tag[]>('get_tags_for_block', { block_id: blockId });
+
 export const getBlocksByTag = (tagName: string) =>
   invoke<{ tasks: Block[]; blocks: Block[] }>('get_blocks_by_tag', { tag_name: tagName });
 
