@@ -2,6 +2,8 @@
   import '../app.css';
   import Sidebar from '$lib/components/Sidebar.svelte';
   import { sidebar } from '$lib/stores/sidebar.svelte';
+  import SearchOverlay from '$lib/components/SearchOverlay.svelte';
+  import { searchStore } from '$lib/stores/search.svelte';
   import { onMount } from 'svelte';
   import type { Snippet } from 'svelte';
 
@@ -11,7 +13,22 @@
     void sidebar.loadTags();
     void sidebar.loadMindMaps();
   });
+
+  function handleGlobalKeydown(e: KeyboardEvent) {
+    if (
+      e.key === '/' &&
+      !searchStore.open &&
+      !(e.target instanceof HTMLInputElement) &&
+      !(e.target instanceof HTMLTextAreaElement)
+    ) {
+      e.preventDefault();
+      searchStore.open = true;
+    }
+  }
 </script>
+
+<svelte:window onkeydown={handleGlobalKeydown} />
+<SearchOverlay />
 
 <div class="app-shell">
   <Sidebar />
