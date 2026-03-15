@@ -2,12 +2,15 @@
   import type { Block, TaskStatus } from '$lib/types';
   import TaskCheckbox from './TaskCheckbox.svelte';
   import TagPill from './TagPill.svelte';
+  import BlockEditor from './BlockEditor.svelte';
   import { updateBlock } from '$lib/api';
 
-  let { block, onedit, ondelete }: {
+  let { block, onedit, ondelete, onindent, onoutdent }: {
     block: Block;
     onedit: (id: string) => void;
     ondelete: (id: string) => void;
+    onindent?: (blockId: string) => void;
+    onoutdent?: (blockId: string) => void;
   } = $props();
 
   let editing = $state(false);
@@ -18,22 +21,16 @@
     editContent = block.content;
   }
 
-  async function commitEdit() {
-    if (editContent !== block.content) {
-      await updateBlock(block.id, editContent);
+  async function handleCommit(newContent: string) {
+    if (newContent !== block.content) {
+      await updateBlock(block.id, newContent);
     }
     editing = false;
     onedit(block.id);
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      void commitEdit();
-    }
-    if (e.key === 'Escape') {
-      editing = false;
-    }
+  function handleCancel() {
+    editing = false;
   }
 
   async function handleStatusChange(newStatus: TaskStatus) {
@@ -52,12 +49,14 @@
     {/if}
 
     {#if editing}
-      <input
-        class="block-editor"
-        bind:value={editContent}
-        onkeydown={handleKeydown}
-        onblur={() => void commitEdit()}
-        autofocus
+      <BlockEditor
+        blockId={block.id}
+        {block}
+        initialContent={editContent}
+        oncommit={(c) => void handleCommit(c)}
+        oncancel={handleCancel}
+        {onindent}
+        {onoutdent}
       />
     {:else}
       <span
@@ -103,13 +102,5 @@
     text-decoration: line-through;
     color: var(--text-muted);
   }
-  .block-editor {
-    flex: 1;
-    border: none;
-    outline: none;
-    font: inherit;
-    padding: var(--space-1);
-    background: var(--bg-muted);
-    border-radius: 2px;
-  }
+
 </style>
