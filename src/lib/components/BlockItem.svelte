@@ -28,11 +28,16 @@
   }
 
   async function handleCommit(newContent: string) {
-    if (newContent !== block.content) {
-      await updateBlock(block.id, newContent);
+    try {
+      if (newContent !== block.content) {
+        await updateBlock(block.id, newContent);
+      }
+      editing = false;
+      onedit(block.id);
+    } catch (e) {
+      console.error('Failed to update block:', e);
+      editing = false;
     }
-    editing = false;
-    onedit(block.id);
   }
 
   function handleCancel() {
@@ -40,8 +45,12 @@
   }
 
   async function handleStatusChange(newStatus: TaskStatus) {
-    await updateBlock(block.id, undefined, undefined, newStatus);
-    onedit(block.id);
+    try {
+      await updateBlock(block.id, undefined, undefined, newStatus);
+      onedit(block.id);
+    } catch (e) {
+      console.error('Failed to update block status:', e);
+    }
   }
 
   const isDone = $derived(block.status === 'done');

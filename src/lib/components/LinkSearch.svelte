@@ -18,7 +18,7 @@
         if (query !== q) return; // stale guard
         results = r.slice(0, 8);
         selectedIndex = 0;
-      });
+      }).catch(e => console.error('Failed to search:', e));
     } else {
       results = [];
     }
