@@ -39,6 +39,14 @@ pub fn run() {
             commands::links::get_backlinks,
             commands::links::get_forward_links,
             commands::search::search,
+            commands::mindmaps::create_mind_map,
+            commands::mindmaps::get_mind_maps,
+            commands::mindmaps::delete_mind_map,
+            commands::mindmaps::add_mind_map_node,
+            commands::mindmaps::update_node_position,
+            commands::mindmaps::get_mind_map_nodes,
+            commands::mindmaps::get_mind_map_nodes_with_blocks,
+            commands::mindmaps::send_nodes_to_journal,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
