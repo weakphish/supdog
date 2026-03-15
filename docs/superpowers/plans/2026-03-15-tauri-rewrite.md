@@ -313,7 +313,7 @@ pub fn init_db(app_data_dir: PathBuf) -> Result<Connection, Box<dyn std::error::
 Update `src-tauri/Cargo.toml` to include:
 ```toml
 [dependencies]
-tauri = { version = "2", features = ["global-shortcut"] }
+tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 rusqlite = { version = "0.31", features = ["bundled"] }
 rusqlite_migration = "1"
@@ -374,7 +374,7 @@ Create `src-tauri/src/models.rs`:
 ```rust
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockType {
     Bullet,
@@ -386,7 +386,7 @@ pub enum BlockType {
     Task,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
     Todo,
@@ -395,7 +395,7 @@ pub enum TaskStatus {
     Cancelled,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Priority {
     High,
@@ -915,8 +915,9 @@ mod tests {
         add_tag_to_block_impl(&conn, &block.id, &tag.id).unwrap();
 
         let result = get_blocks_by_tag_impl(&conn, "work").unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].content, "tagged block");
+        let blocks = result["blocks"].as_array().unwrap();
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0]["content"].as_str().unwrap(), "tagged block");
     }
 }
 ```
@@ -1017,8 +1018,17 @@ pub fn get_blocks_by_tag_impl(conn: &Connection, tag_name: &str) -> Result<serde
     let tasks: Vec<_> = blocks.iter().filter(|b| matches!(b.status.as_ref(), Some(s) if s == &crate::models::TaskStatus::Todo || s == &crate::models::TaskStatus::InProgress)).cloned().collect();
     let other: Vec<_> = blocks.iter().filter(|b| b.block_type != crate::models::BlockType::Task || matches!(b.status.as_ref(), Some(s) if s == &crate::models::TaskStatus::Done || s == &crate::models::TaskStatus::Cancelled)).cloned().collect();
 
-    // TODO: attach children to each task block (reuse tree-building from blocks.rs)
-    Ok(serde_json::json!({ "tasks": tasks, "blocks": other }))
+    // Attach children to each task by querying child blocks
+    let mut tasks_with_children: Vec<crate::models::Block> = vec![];
+    for mut task in tasks {
+        let mut child_stmt = conn.prepare(
+            "SELECT * FROM blocks WHERE parent_id = ?1 ORDER BY position"
+        ).map_err(|e| e.to_string())?;
+        task.children = child_stmt.query_map(params![task.id], |r| row_to_block(r))
+            .map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+        tasks_with_children.push(task);
+    }
+    Ok(serde_json::json!({ "tasks": tasks_with_children, "blocks": other }))
 }
 ```
 
@@ -1170,7 +1180,7 @@ mod tests {
         blocks::create_block_impl(&conn, &note.id, None, "discussed migration strategy", "bullet", 0).unwrap();
         blocks::create_block_impl(&conn, &note.id, None, "unrelated note about lunch", "bullet", 1).unwrap();
 
-        let results = search_impl(&conn, "migration", None, None).unwrap();
+        let results = search_impl(&conn, "migration", None, None, None).unwrap();
         assert_eq!(results.len(), 1);
         assert!(results[0].block.content.contains("migration"));
     }
@@ -1182,7 +1192,7 @@ mod tests {
         blocks::create_block_impl(&conn, &note.id, None, "migration note", "bullet", 0).unwrap();
         blocks::create_block_impl(&conn, &note.id, None, "migration task", "task", 1).unwrap();
 
-        let results = search_impl(&conn, "migration", Some("task"), None).unwrap();
+        let results = search_impl(&conn, "migration", Some("task"), None, None).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].block.block_type, BlockType::Task);
     }
@@ -1203,9 +1213,9 @@ use crate::models::SearchResult;
 use crate::commands::blocks::row_to_block;
 use crate::db::DbState;
 
-/// FTS5 search with optional block_type and tag filters.
-/// `status:open` in the query maps to todo + in_progress.
-pub fn search_impl(conn: &Connection, query: &str, block_type_filter: Option<&str>, tag_filter: Option<&str>) -> Result<Vec<SearchResult>, String> {
+/// FTS5 search with optional block_type, tag, and status filters.
+/// `status_filter = "open"` maps to `todo` + `in_progress`.
+pub fn search_impl(conn: &Connection, query: &str, block_type_filter: Option<&str>, tag_filter: Option<&str>, status_filter: Option<&str>) -> Result<Vec<SearchResult>, String> {
     // Build the query dynamically based on filters
     let mut sql = String::from(
         "SELECT b.*, p.content as parent_content, dn.date as daily_note_date
@@ -1228,6 +1238,16 @@ pub fn search_impl(conn: &Connection, query: &str, block_type_filter: Option<&st
         conditions.push(format!("t.name = ?{}", param_values.len()));
     }
 
+    // status:open maps to todo + in_progress per spec
+    if let Some(status) = status_filter {
+        if status == "open" {
+            conditions.push("b.status IN ('todo', 'in_progress')".to_string());
+        } else {
+            param_values.push(status.to_string());
+            conditions.push(format!("b.status = ?{}", param_values.len()));
+        }
+    }
+
     sql.push_str(&format!(" WHERE {} ORDER BY fts.rank LIMIT 50", conditions.join(" AND ")));
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
@@ -1242,7 +1262,7 @@ pub fn search_impl(conn: &Connection, query: &str, block_type_filter: Option<&st
 }
 ```
 
-Tauri `#[command]` wrapper: `search(query: String, block_type_filter: Option<String>, tag_filter: Option<String>)`.
+Tauri `#[command]` wrapper: `search(query: String, block_type_filter: Option<String>, tag_filter: Option<String>, status_filter: Option<String>)`.
 
 - [ ] **Step 8: Run tests to verify they pass**
 
@@ -1395,6 +1415,40 @@ pub fn get_mind_map_nodes_impl(conn: &Connection, mind_map_id: &str) -> Result<V
         id: r.get(0)?, mind_map_id: r.get(1)?, block_id: r.get(2)?, x: r.get(3)?, y: r.get(4)?
     })).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
     Ok(nodes)
+}
+
+/// Returns mind map nodes joined with their block content for the frontend.
+/// Uses a named struct instead of a tuple so Tauri serializes as { node, block } objects.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NodeWithBlock {
+    pub node: MindMapNode,
+    pub block: crate::models::Block,
+}
+
+pub fn get_mind_map_nodes_with_blocks_impl(conn: &Connection, mind_map_id: &str) -> Result<Vec<NodeWithBlock>, String> {
+    let mut stmt = conn.prepare(
+        "SELECT mmn.id, mmn.mind_map_id, mmn.block_id, mmn.x, mmn.y, b.*
+         FROM mind_map_nodes mmn JOIN blocks b ON mmn.block_id = b.id
+         WHERE mmn.mind_map_id = ?1"
+    ).map_err(|e| e.to_string())?;
+    let results = stmt.query_map(params![mind_map_id], |r| {
+        let node = MindMapNode { id: r.get(0)?, mind_map_id: r.get(1)?, block_id: r.get(2)?, x: r.get(3)?, y: r.get(4)? };
+        // Block columns start at index 5: id(5), content(6), block_type(7),
+        // parent_id(8), daily_note_id(9), position(10), status(11),
+        // priority(12), due_date(13), created_at(14), updated_at(15)
+        let block = crate::models::Block {
+            id: r.get(5)?, content: r.get(6)?,
+            block_type: serde_json::from_value(serde_json::Value::String(r.get::<_, String>(7)?)).unwrap_or(crate::models::BlockType::Bullet),
+            parent_id: r.get(8)?, daily_note_id: r.get(9)?, position: r.get(10)?,
+            status: r.get::<_, Option<String>>(11)?.and_then(|s| serde_json::from_value(serde_json::Value::String(s)).ok()),
+            priority: r.get::<_, Option<String>>(12)?.and_then(|s| serde_json::from_value(serde_json::Value::String(s)).ok()),
+            due_date: r.get(13)?,
+            created_at: r.get(14)?, updated_at: r.get(15)?,
+            tags: vec![], children: vec![],
+        };
+        Ok(NodeWithBlock { node, block })
+    }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+    Ok(results)
 }
 
 /// Moves blocks from mind map into the journal for the given date.
@@ -1575,8 +1629,8 @@ export const getForwardLinks = (blockId: string) =>
   invoke<Block[]>('get_forward_links', { blockId });
 
 // Search
-export const search = (query: string, blockTypeFilter?: string, tagFilter?: string) =>
-  invoke<SearchResult[]>('search', { query, blockTypeFilter, tagFilter });
+export const search = (query: string, blockTypeFilter?: string, tagFilter?: string, statusFilter?: string) =>
+  invoke<SearchResult[]>('search', { query, blockTypeFilter, tagFilter, statusFilter });
 
 // Mind Maps
 export const createMindMap = (name: string) =>
@@ -2035,7 +2089,7 @@ Create `src/lib/components/TagPill.svelte`:
 Create `src/lib/components/BlockItem.svelte`:
 ```svelte
 <script lang="ts">
-  import type { Block } from '$lib/types';
+  import type { Block, TaskStatus } from '$lib/types';
   import TaskCheckbox from './TaskCheckbox.svelte';
   import TagPill from './TagPill.svelte';
   import { updateBlock } from '$lib/api';
@@ -2339,11 +2393,12 @@ Create `src/routes/journal/[date]/+page.svelte`:
 
   const journal = journalState();
 
-  // Reactive: reload when date param changes
+  // Reactive: reload when date param changes.
+  // Wrap async call so $effect body stays synchronous (avoids returning a Promise).
   $effect(() => {
     const date = page.params.date;
     if (date) {
-      journal.loadDate(date);
+      void journal.loadDate(date);
     }
   });
 
@@ -2580,7 +2635,7 @@ Create `src/routes/tag/[...path]/+page.svelte`:
   $effect(() => {
     const path = page.params.path;
     if (path) {
-      tagPage.loadTag(path);
+      void tagPage.loadTag(path);
     }
   });
 
@@ -3116,18 +3171,9 @@ This component needs a canvas-like interaction. Use SVG for rendering nodes and 
   let dragOffset = $state({ x: 0, y: 0 });
 
   async function load() {
-    const raw = await getMindMapNodes(mindMapId);
-    // Fetch block content for each node via getBlocksForDate won't work here
-    // since mind map blocks have no daily_note_id. We need a getBlock command,
-    // or the backend should return nodes joined with their block data.
-    // For now, map raw nodes and fetch block content inline:
-    const loaded: CanvasNode[] = [];
-    for (const n of raw) {
-      // The backend get_mind_map_nodes should be extended to JOIN blocks
-      // and return block content alongside node positions.
-      loaded.push({ node: n, block: { id: n.block_id, content: '', block_type: 'bullet', parent_id: null, daily_note_id: null, position: 0, status: null, priority: null, due_date: null, created_at: '', updated_at: '', tags: [], children: [] } });
-    }
-    nodes = loaded;
+    // Use the joined query that returns nodes with their block content
+    const raw: { node: MindMapNode; block: Block }[] = await invoke('get_mind_map_nodes_with_blocks', { mindMapId });
+    nodes = raw.map(r => ({ node: r.node, block: r.block }));
 
     // Load connections: for all block_ids in this mind map, query forward links
     const allConns: { from: string; to: string }[] = [];
@@ -3143,9 +3189,7 @@ This component needs a canvas-like interaction. Use SVG for rendering nodes and 
     connections = allConns;
   }
 
-  // Note: A production implementation should add a `get_mind_map_nodes_with_blocks`
-  // backend command that JOINs blocks in a single query for efficiency.
-
+  import { invoke } from '@tauri-apps/api/core';
   import { onMount } from 'svelte';
   onMount(() => { load(); });
 
@@ -3204,7 +3248,62 @@ This component needs a canvas-like interaction. Use SVG for rendering nodes and 
     selected = new Set();
     await load();
   }
+
+  // Right-click context menu
+  let contextMenu = $state<{ x: number; y: number; nodeId: string } | null>(null);
+
+  function handleContextMenu(nodeId: string, e: MouseEvent) {
+    e.preventDefault();
+    contextMenu = { x: e.clientX, y: e.clientY, nodeId };
+  }
+
+  function closeContextMenu() {
+    contextMenu = null;
+  }
+
+  async function convertToTask(nodeId: string) {
+    const n = nodes.find(n => n.node.id === nodeId);
+    if (n) {
+      await invoke('update_block', { id: n.node.block_id, blockType: 'task', status: 'todo' });
+      await load();
+    }
+    closeContextMenu();
+  }
+
+  async function addTagToNode(nodeId: string) {
+    const tagName = prompt('Tag name:');
+    if (!tagName) { closeContextMenu(); return; }
+    const { createTag, addTagToBlock } = await import('$lib/api');
+    const n = nodes.find(n => n.node.id === nodeId);
+    if (n) {
+      const tag = await createTag(tagName);
+      await addTagToBlock(n.node.block_id, tag.id);
+    }
+    closeContextMenu();
+  }
+
+  async function sendOneToJournal(nodeId: string) {
+    const n = nodes.find(n => n.node.id === nodeId);
+    if (n) {
+      const today = new Date().toISOString().split('T')[0];
+      await sendNodesToJournal([n.node.block_id], today);
+      await load();
+    }
+    closeContextMenu();
+  }
 </script>
+
+<!-- Context menu -->
+{#if contextMenu}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="context-menu-backdrop" onclick={closeContextMenu} onkeydown={() => {}}>
+    <div class="context-menu" style="left: {contextMenu.x}px; top: {contextMenu.y}px;">
+      <button onclick={() => contextMenu && convertToTask(contextMenu.nodeId)}>Convert to task</button>
+      <button onclick={() => contextMenu && addTagToNode(contextMenu.nodeId)}>Add tag</button>
+      <button onclick={() => contextMenu && sendOneToJournal(contextMenu.nodeId)}>Send to journal</button>
+    </div>
+  </div>
+{/if}
 
 <div class="mind-map-toolbar">
   {#if selected.size > 0}
@@ -3242,6 +3341,7 @@ This component needs a canvas-like interaction. Use SVG for rendering nodes and 
       transform="translate({n.node.x}, {n.node.y})"
       onmousedown={(e) => handleNodeMouseDown(n.node.id, e)}
       onclick={() => toggleSelect(n.node.id)}
+      oncontextmenu={(e) => handleContextMenu(n.node.id, e)}
       class="mind-map-node"
       class:selected={selected.has(n.node.id)}
     >
@@ -3292,6 +3392,34 @@ This component needs a canvas-like interaction. Use SVG for rendering nodes and 
   }
   .mind-map-node:active {
     cursor: grabbing;
+  }
+  .context-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+  }
+  .context-menu {
+    position: fixed;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: var(--space-1) 0;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    z-index: 101;
+    display: flex;
+    flex-direction: column;
+  }
+  .context-menu button {
+    padding: var(--space-2) var(--space-4);
+    border: none;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+  }
+  .context-menu button:hover {
+    background: var(--bg-hover);
   }
 </style>
 ```
@@ -3351,12 +3479,15 @@ Create `src/lib/components/TagAutocomplete.svelte`:
     allTags.filter(t => t.name.toLowerCase().includes(query.toLowerCase())).slice(0, 8)
   );
 
+  // Reset selection when filtered results change
   $effect(() => {
-    getAllTags().then(t => allTags = t);
+    filtered; // subscribe to filtered
+    selectedIndex = 0;
   });
 
-  $effect(() => {
-    selectedIndex = 0;
+  import { onMount } from 'svelte';
+  onMount(() => {
+    getAllTags().then(t => allTags = t);
   });
 
   export function handleKeydown(e: KeyboardEvent): boolean {
@@ -3436,9 +3567,12 @@ Create `src/lib/components/LinkSearch.svelte`:
   let results = $state<SearchResult[]>([]);
   let selectedIndex = $state(0);
 
+  // query is a $props() value, so $effect correctly tracks it as a dependency.
+  // Wrap async call with void to keep $effect body synchronous.
   $effect(() => {
-    if (query.length >= 2) {
-      search(query).then(r => { results = r.slice(0, 8); selectedIndex = 0; });
+    const q = query; // read prop to subscribe
+    if (q.length >= 2) {
+      void search(q).then(r => { results = r.slice(0, 8); selectedIndex = 0; });
     } else {
       results = [];
     }
@@ -3516,13 +3650,18 @@ Create `src/lib/components/BlockEditor.svelte` — a richer inline editor that d
 <script lang="ts">
   import TagAutocomplete from './TagAutocomplete.svelte';
   import LinkSearch from './LinkSearch.svelte';
-  import { addTagToBlock, createTag, createLink } from '$lib/api';
+  import { addTagToBlock, createTag, createLink, updateBlock, reorderBlock } from '$lib/api';
 
-  let { blockId, initialContent, oncommit, oncancel }: {
+  import type { Block } from '$lib/types';
+
+  let { blockId, block, initialContent, oncommit, oncancel, onindent, onoutdent }: {
     blockId: string;
+    block: Block;
     initialContent: string;
     oncommit: (content: string) => void;
     oncancel: () => void;
+    onindent?: (blockId: string) => void;
+    onoutdent?: (blockId: string) => void;
   } = $props();
 
   let content = $state(initialContent);
@@ -3530,7 +3669,8 @@ Create `src/lib/components/BlockEditor.svelte` — a richer inline editor that d
   let triggerQuery = $state('');
   let inputEl: HTMLInputElement;
 
-  $effect(() => { inputEl?.focus(); });
+  import { onMount } from 'svelte';
+  onMount(() => { inputEl?.focus(); });
 
   function handleInput(e: Event) {
     content = (e.target as HTMLInputElement).value;
@@ -3571,7 +3711,51 @@ Create `src/lib/components/BlockEditor.svelte` — a richer inline editor that d
     inputEl?.focus();
   }
 
+  // Svelte 5: bind:this on components gives the component's exported API.
+  // The { handleKeydown } export on each component makes this work.
+  let tagAutocomplete: { handleKeydown: (e: KeyboardEvent) => boolean } | undefined;
+  let linkSearch: { handleKeydown: (e: KeyboardEvent) => boolean } | undefined;
+
   function handleKeydown(e: KeyboardEvent) {
+    // Delegate to active dropdown first
+    if (mode === 'tag' && tagAutocomplete?.handleKeydown(e)) return;
+    if (mode === 'link' && linkSearch?.handleKeydown(e)) return;
+
+    // Tab indent/outdent (from Task 18)
+    if (e.key === 'Tab' && !e.shiftKey && onindent) {
+      e.preventDefault();
+      onindent(blockId);
+      return;
+    }
+    if (e.key === 'Tab' && e.shiftKey && onoutdent) {
+      e.preventDefault();
+      onoutdent(blockId);
+      return;
+    }
+
+    // Cmd+Enter toggles task (from Task 18)
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      const isTask = block.block_type === 'task';
+      void updateBlock(blockId, undefined, isTask ? 'bullet' : 'task', isTask ? undefined : 'todo')
+        .then(() => oncommit(content));
+      return;
+    }
+
+    // Alt+Up/Down reorders (from Task 18)
+    if (e.key === 'ArrowUp' && e.altKey) {
+      e.preventDefault();
+      void reorderBlock(blockId, block.parent_id, Math.max(0, block.position - 1))
+        .then(() => oncommit(content));
+      return;
+    }
+    if (e.key === 'ArrowDown' && e.altKey) {
+      e.preventDefault();
+      void reorderBlock(blockId, block.parent_id, block.position + 1)
+        .then(() => oncommit(content));
+      return;
+    }
+
     if (e.key === 'Enter' && !e.shiftKey && mode === 'normal') {
       e.preventDefault();
       oncommit(content);
@@ -3593,6 +3777,7 @@ Create `src/lib/components/BlockEditor.svelte` — a richer inline editor that d
 
   {#if mode === 'tag'}
     <TagAutocomplete
+      bind:this={tagAutocomplete}
       query={triggerQuery}
       onselect={handleTagSelect}
       onclose={() => { mode = 'normal'; }}
@@ -3601,6 +3786,7 @@ Create `src/lib/components/BlockEditor.svelte` — a richer inline editor that d
 
   {#if mode === 'link'}
     <LinkSearch
+      bind:this={linkSearch}
       query={triggerQuery}
       onselect={handleLinkSelect}
       onclose={() => { mode = 'normal'; }}
@@ -3702,22 +3888,9 @@ Update `src/routes/journal/[date]/+page.svelte` to track the currently focused b
 </script>
 ```
 
-- [ ] **Step 2: Add Tab/Shift+Tab for indent/outdent**
+- [ ] **Step 2: Wire indent/outdent from journal page through BlockItem**
 
-In `BlockEditor.svelte`, add to `handleKeydown`:
-```ts
-if (e.key === 'Tab' && !e.shiftKey) {
-  e.preventDefault();
-  // Find previous sibling from parent context and nest under it
-  onindent(blockId);
-}
-if (e.key === 'Tab' && e.shiftKey) {
-  e.preventDefault();
-  onoutdent(blockId);
-}
-```
-
-Add `onindent` and `onoutdent` props to BlockEditor and BlockItem, wired to the journal page:
+The keyboard shortcuts (Tab, Shift+Tab, Cmd+Enter, Alt+Up/Down) are already implemented in `BlockEditor.svelte` from Task 17. In this step, wire the `onindent` and `onoutdent` optional props through `BlockItem` and `BlockTree` from the journal page:
 ```ts
 async function handleIndent(blockId: string) {
   const prev = findPreviousSibling(journal.blocks, blockId);
@@ -3737,35 +3910,7 @@ async function handleOutdent(blockId: string) {
 }
 ```
 
-- [ ] **Step 3: Add Cmd+Enter to toggle task**
-
-In `BlockEditor.svelte`, add to `handleKeydown`:
-```ts
-if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-  e.preventDefault();
-  const isTask = block.block_type === 'task';
-  await updateBlock(blockId, undefined, isTask ? 'bullet' : 'task', isTask ? undefined : 'todo');
-  onedit(blockId);
-}
-```
-
-- [ ] **Step 4: Add Alt+Up/Alt+Down to reorder**
-
-In `BlockEditor.svelte`, add to `handleKeydown`:
-```ts
-if (e.key === 'ArrowUp' && e.altKey) {
-  e.preventDefault();
-  await reorderBlock(blockId, block.parent_id ?? null, Math.max(0, block.position - 1));
-  onedit(blockId);
-}
-if (e.key === 'ArrowDown' && e.altKey) {
-  e.preventDefault();
-  await reorderBlock(blockId, block.parent_id ?? null, block.position + 1);
-  onedit(blockId);
-}
-```
-
-- [ ] **Step 5: Verify all keyboard shortcuts work**
+- [ ] **Step 3: Verify all keyboard shortcuts work**
 
 Run the app with `npm run tauri dev` and manually test:
 - Enter creates new block
@@ -3773,7 +3918,7 @@ Run the app with `npm run tauri dev` and manually test:
 - Cmd+Enter toggles task
 - Alt+Up/Down reorders
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add src/routes/journal/ src/lib/components/
@@ -3838,9 +3983,13 @@ git commit -m "fix: integration test fixes"
 rm -rf crates/
 ```
 
-- [ ] **Step 2: Update root Cargo.toml**
+- [ ] **Step 2: Remove root Cargo.toml**
 
-Remove the `[workspace]` members pointing to `crates/sup` and `crates/sup-core`. The root `Cargo.toml` may no longer be needed if `src-tauri/Cargo.toml` is the only Rust project.
+Delete the root `Cargo.toml` — it was a workspace file for the old `crates/sup` and `crates/sup-core` members. The only Rust project going forward is `src-tauri/`, which has its own `Cargo.toml`. Also delete `Cargo.lock` from the repo root (a new lock file will live inside `src-tauri/`).
+
+```bash
+rm Cargo.toml Cargo.lock
+```
 
 - [ ] **Step 3: Update .gitignore**
 
