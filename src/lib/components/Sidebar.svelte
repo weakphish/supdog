@@ -1,8 +1,6 @@
 <script lang="ts">
-  import { sidebarState } from '$lib/stores/sidebar.svelte';
+  import { sidebar } from '$lib/stores/sidebar.svelte';
   import type { Tag } from '$lib/types';
-
-  const sidebar = sidebarState();
 
   function todayDate(): string {
     return new Date().toISOString().split('T')[0];
@@ -15,7 +13,9 @@
 
 <nav class="sidebar" class:collapsed={sidebar.collapsed}>
   <div class="sidebar-header">
-    <button class="toggle" onclick={() => sidebar.toggle()}>
+    <button class="toggle" onclick={() => sidebar.toggle()}
+        aria-label={sidebar.collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        aria-expanded={!sidebar.collapsed}>
       {sidebar.collapsed ? '→' : '←'}
     </button>
   </div>
@@ -89,6 +89,10 @@
   .nav-item:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
+  }
+  .nav-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
   .nav-indent {
     padding-left: var(--space-6);
