@@ -3,10 +3,14 @@
 
   let { date }: { date: string } = $props();
 
+  function localDateStr(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
   function offsetDate(days: number): string {
     const d = new Date(date + 'T00:00:00');
     d.setDate(d.getDate() + days);
-    return d.toISOString().split('T')[0];
+    return localDateStr(d);
   }
 
   function formatDate(dateStr: string): string {

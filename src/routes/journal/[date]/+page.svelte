@@ -22,16 +22,20 @@
     void journal.removeBlock(id);
   }
 
+  function localDateStr(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'ArrowLeft' && e.altKey) {
       const d = new Date(page.params.date + 'T00:00:00');
       d.setDate(d.getDate() - 1);
-      void goto(`/journal/${d.toISOString().split('T')[0]}`);
+      void goto(`/journal/${localDateStr(d)}`);
     }
     if (e.key === 'ArrowRight' && e.altKey) {
       const d = new Date(page.params.date + 'T00:00:00');
       d.setDate(d.getDate() + 1);
-      void goto(`/journal/${d.toISOString().split('T')[0]}`);
+      void goto(`/journal/${localDateStr(d)}`);
     }
   }
 </script>
