@@ -73,4 +73,3 @@ CREATE TRIGGER blocks_au AFTER UPDATE OF content ON blocks BEGIN
     INSERT INTO blocks_fts(rowid, content) VALUES (NEW.rowid, NEW.content);
 END;
 
-PRAGMA foreign_keys = ON;
