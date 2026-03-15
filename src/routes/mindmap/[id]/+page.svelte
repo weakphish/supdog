@@ -1,3 +1,6 @@
 <script lang="ts">
+  import { page } from '$app/state';
+  import MindMapCanvas from '$lib/components/MindMapCanvas.svelte';
 </script>
-<div></div>
+
+<MindMapCanvas mindMapId={page.params.id} />
