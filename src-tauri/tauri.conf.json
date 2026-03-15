@@ -18,6 +18,18 @@
         "height": 768,
         "resizable": true,
         "fullscreen": false
+      },
+      {
+        "label": "capture",
+        "url": "/capture",
+        "title": "",
+        "width": 600,
+        "height": 80,
+        "resizable": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "visible": false,
+        "center": true
       }
     ],
     "security": {

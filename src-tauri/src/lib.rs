@@ -1,12 +1,14 @@
 mod db;
 mod models;
 mod commands;
+mod quick_capture;
 
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -18,6 +20,7 @@ pub fn run() {
             let app_data_dir = app.path().app_data_dir().expect("failed to get app data dir");
             let conn = db::init_db(app_data_dir)?;
             app.manage(db::DbState(std::sync::Mutex::new(conn)));
+            quick_capture::setup_global_shortcut(app.handle())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

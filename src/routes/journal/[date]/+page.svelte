@@ -1,9 +1,18 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
+  import { onMount } from 'svelte';
+  import { listen } from '@tauri-apps/api/event';
   import BlockTree from '$lib/components/BlockTree.svelte';
   import DateNav from '$lib/components/DateNav.svelte';
   import { journal } from '$lib/stores/journal.svelte';
+
+  onMount(() => {
+    const unlistenPromise = listen('journal-refresh', () => {
+      void journal.refresh();
+    });
+    return () => { void unlistenPromise.then(fn => fn()); };
+  });
 
   // Reactive: reload when date param changes.
   // void wraps async call so $effect body stays synchronous.
