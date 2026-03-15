@@ -48,7 +48,7 @@
 <div class="block-item" class:done={isDone} class:cancelled={isCancelled}>
   <div class="block-line">
     {#if block.block_type === 'task' && block.status}
-      <TaskCheckbox status={block.status} onchange={handleStatusChange} />
+      <TaskCheckbox status={block.status} onchange={(s) => void handleStatusChange(s)} />
     {/if}
 
     {#if editing}
