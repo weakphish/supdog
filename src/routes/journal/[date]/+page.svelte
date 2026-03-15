@@ -6,6 +6,8 @@
   import BlockTree from '$lib/components/BlockTree.svelte';
   import DateNav from '$lib/components/DateNav.svelte';
   import { journal } from '$lib/stores/journal.svelte';
+  import { reparentBlock } from '$lib/api';
+  import type { Block } from '$lib/types';
 
   onMount(() => {
     const unlistenPromise = listen('journal-refresh', () => {
@@ -29,6 +31,60 @@
 
   function handleDelete(id: string) {
     void journal.removeBlock(id);
+  }
+
+  function findBlock(blocks: Block[], id: string): Block | null {
+    for (const b of blocks) {
+      if (b.id === id) return b;
+      const found = findBlock(b.children ?? [], id);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function findParentBlock(blocks: Block[], childId: string, parent: Block | null = null): Block | null {
+    for (const b of blocks) {
+      if (b.id === childId) return parent;
+      const found = findParentBlock(b.children ?? [], childId, b);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function findPreviousSibling(blocks: Block[], blockId: string): Block | null {
+    for (let i = 1; i < blocks.length; i++) {
+      if (blocks[i].id === blockId) return blocks[i - 1];
+    }
+    for (const b of blocks) {
+      const found = findPreviousSibling(b.children ?? [], blockId);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  async function handleIndent(blockId: string) {
+    try {
+      const prev = findPreviousSibling(journal.blocks, blockId);
+      if (prev) {
+        await reparentBlock(blockId, prev.id, (prev.children ?? []).length);
+        await journal.refresh();
+      }
+    } catch (e) {
+      console.error('Failed to indent block:', e);
+    }
+  }
+
+  async function handleOutdent(blockId: string) {
+    try {
+      const parent = findParentBlock(journal.blocks, blockId);
+      if (parent) {
+        const grandparent = findParentBlock(journal.blocks, parent.id);
+        await reparentBlock(blockId, grandparent?.id ?? null, parent.position + 1);
+        await journal.refresh();
+      }
+    } catch (e) {
+      console.error('Failed to outdent block:', e);
+    }
   }
 
   function localDateStr(d: Date): string {
@@ -58,7 +114,10 @@
 {:else if journal.blocks.length === 0}
   <p class="empty">No entries yet. Start typing to add one.</p>
 {:else}
-  <BlockTree blocks={journal.blocks} onedit={handleEdit} ondelete={handleDelete} />
+  <BlockTree blocks={journal.blocks} onedit={handleEdit} ondelete={handleDelete}
+    onindent={(id) => void handleIndent(id)}
+    onoutdent={(id) => void handleOutdent(id)}
+  />
 {/if}
 
 <style>
