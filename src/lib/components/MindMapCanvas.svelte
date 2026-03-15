@@ -32,19 +32,24 @@
   }
 
   async function load() {
-    const raw = await getMindMapNodesWithBlocks(mindMapId);
-    nodes = raw.map(r => ({ node: r.node, block: r.block }));
+    const id = mindMapId;
+    const raw = await getMindMapNodesWithBlocks(id);
+    if (id !== mindMapId) return;
+    const loaded = raw.map(r => ({ node: r.node, block: r.block }));
+
+    const blockIds = new Set(loaded.map(n => n.node.block_id));
+    const linksArrays = await Promise.all(loaded.map(n => getForwardLinks(n.node.block_id)));
+    if (id !== mindMapId) return;
 
     const allConns: { from: string; to: string }[] = [];
-    const blockIds = new Set(nodes.map(n => n.node.block_id));
-    for (const n of nodes) {
-      const fwd = await getForwardLinks(n.node.block_id);
-      for (const target of fwd) {
+    for (let i = 0; i < loaded.length; i++) {
+      for (const target of linksArrays[i]) {
         if (blockIds.has(target.id)) {
-          allConns.push({ from: n.node.block_id, to: target.id });
+          allConns.push({ from: loaded[i].node.block_id, to: target.id });
         }
       }
     }
+    nodes = loaded;
     connections = allConns;
   }
 
@@ -70,21 +75,32 @@
 
   function handleMouseMove(e: MouseEvent) {
     if (dragging) {
-      const node = nodes.find(n => n.node.id === dragging);
-      if (node) {
-        node.node.x = e.clientX - dragOffset.x;
-        node.node.y = e.clientY - dragOffset.y;
-      }
+      const newX = e.clientX - dragOffset.x;
+      const newY = e.clientY - dragOffset.y;
+      nodes = nodes.map(n => n.node.id === dragging
+        ? { ...n, node: { ...n.node, x: newX, y: newY } }
+        : n
+      );
     }
   }
 
   async function handleMouseUp() {
     if (dragging) {
-      const node = nodes.find(n => n.node.id === dragging);
-      if (node) {
-        await updateNodePosition(node.node.id, node.node.x, node.node.y);
+      const nodeId = dragging;
+      const node = nodes.find(n => n.node.id === nodeId);
+      try {
+        if (node) {
+          const newX = node.node.x;
+          const newY = node.node.y;
+          nodes = nodes.map(n => n.node.id === nodeId
+            ? { ...n, node: { ...n.node, x: newX, y: newY } }
+            : n
+          );
+          await updateNodePosition(nodeId, newX, newY);
+        }
+      } finally {
+        dragging = null;
       }
-      dragging = null;
     }
   }
 
