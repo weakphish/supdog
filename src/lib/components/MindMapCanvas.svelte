@@ -90,12 +90,24 @@
 
   function toggleSelect(nodeId: string, e: MouseEvent) {
     e.stopPropagation();
-    if (selected.has(nodeId)) {
-      selected.delete(nodeId);
+    if (e.shiftKey) {
+      // Shift+click: add/remove from selection
+      if (selected.has(nodeId)) {
+        selected.delete(nodeId);
+      } else {
+        selected.add(nodeId);
+      }
+      selected = new Set(selected);
     } else {
-      selected.add(nodeId);
+      // Normal click: clear selection, select only this node
+      selected = new Set([nodeId]);
     }
-    selected = new Set(selected);
+  }
+
+  function handleWindowKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && contextMenu) {
+      closeContextMenu();
+    }
   }
 
   async function sendSelected() {
@@ -145,6 +157,8 @@
     closeContextMenu();
   }
 </script>
+
+<svelte:window onkeydown={handleWindowKeydown} />
 
 {#if contextMenu}
   <div
@@ -200,6 +214,7 @@
       transform="translate({n.node.x}, {n.node.y})"
       onmousedown={(e) => handleNodeMouseDown(n.node.id, e)}
       onclick={(e) => toggleSelect(n.node.id, e)}
+      ondblclick={(e) => e.stopPropagation()}
       oncontextmenu={(e) => handleContextMenu(n.node.id, e)}
       class="mind-map-node"
       class:selected={selected.has(n.node.id)}
