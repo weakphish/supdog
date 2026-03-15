@@ -12,7 +12,7 @@
   const grouped: DateGroup[] = $derived.by(() => {
     const groups = new Map<string, Block[]>();
     for (const block of blocks) {
-      const date = block.created_at.split('T')[0];
+      const date = block.created_at.slice(0, 10);
       if (!groups.has(date)) groups.set(date, []);
       groups.get(date)!.push(block);
     }

@@ -28,9 +28,11 @@ export const tagPage = {
   },
 
   async refresh() {
-    if (currentTag) {
+    const tag = currentTag;
+    if (tag) {
       try {
-        const result = await getBlocksByTag(currentTag);
+        const result = await getBlocksByTag(tag);
+        if (currentTag !== tag) return; // stale guard
         tasks = result.tasks;
         blocks = result.blocks;
       } catch (e) {
