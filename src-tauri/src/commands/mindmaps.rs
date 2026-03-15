@@ -39,30 +39,43 @@ pub fn get_mind_maps_impl(conn: &Connection) -> Result<Vec<MindMap>, String> {
         created_at: row.get(2)?,
         updated_at: row.get(3)?,
     })).map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .collect();
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| e.to_string())?;
 
     Ok(maps)
 }
 
 pub fn delete_mind_map_impl(conn: &Connection, id: &str) -> Result<(), String> {
-    conn.execute("DELETE FROM mind_maps WHERE id = ?1", params![id])
+    let rows = conn.execute("DELETE FROM mind_maps WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
+    if rows == 0 {
+        return Err(format!("mind map not found: {}", id));
+    }
     Ok(())
 }
 
 pub fn add_mind_map_node_impl(conn: &Connection, mind_map_id: &str, content: &str, x: f64, y: f64) -> Result<MindMapNode, String> {
+    conn.execute("BEGIN", []).map_err(|e| e.to_string())?;
+
     let block_id = Uuid::new_v4().to_string();
-    conn.execute(
+    if let Err(e) = conn.execute(
         "INSERT INTO blocks (id, content, block_type, position) VALUES (?1, ?2, ?3, ?4)",
         params![block_id, content, "bullet", 0i64],
-    ).map_err(|e| e.to_string())?;
+    ) {
+        conn.execute("ROLLBACK", []).ok();
+        return Err(e.to_string());
+    }
 
     let node_id = Uuid::new_v4().to_string();
-    conn.execute(
+    if let Err(e) = conn.execute(
         "INSERT INTO mind_map_nodes (id, mind_map_id, block_id, x, y) VALUES (?1, ?2, ?3, ?4, ?5)",
         params![node_id, mind_map_id, block_id, x, y],
-    ).map_err(|e| e.to_string())?;
+    ) {
+        conn.execute("ROLLBACK", []).ok();
+        return Err(e.to_string());
+    }
+
+    conn.execute("COMMIT", []).map_err(|e| e.to_string())?;
 
     Ok(MindMapNode {
         id: node_id,
@@ -97,8 +110,8 @@ pub fn get_mind_map_nodes_impl(conn: &Connection, mind_map_id: &str) -> Result<V
         x: row.get(3)?,
         y: row.get(4)?,
     })).map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .collect();
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| e.to_string())?;
 
     Ok(nodes)
 }
@@ -137,8 +150,8 @@ pub fn get_mind_map_nodes_with_blocks_impl(conn: &Connection, mind_map_id: &str)
         };
         Ok(NodeWithBlock { node, block })
     }).map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .collect();
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| e.to_string())?;
 
     Ok(results)
 }
@@ -153,18 +166,30 @@ pub fn send_nodes_to_journal_impl(conn: &Connection, block_ids: &[String], date:
         |row| row.get(0),
     ).map_err(|e| e.to_string())?;
 
-    for (i, block_id) in block_ids.iter().enumerate() {
-        let new_pos = max_pos + 1 + i as i64;
-        conn.execute(
-            "UPDATE blocks SET daily_note_id = ?1, position = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?3",
-            params![daily_note.id, new_pos, block_id],
-        ).map_err(|e| e.to_string())?;
+    conn.execute("BEGIN", []).map_err(|e| e.to_string())?;
 
-        conn.execute(
-            "DELETE FROM mind_map_nodes WHERE block_id = ?1",
-            params![block_id],
-        ).map_err(|e| e.to_string())?;
+    let result = (|| {
+        for (i, block_id) in block_ids.iter().enumerate() {
+            let new_pos = max_pos + 1 + i as i64;
+            conn.execute(
+                "UPDATE blocks SET daily_note_id = ?1, position = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?3",
+                params![daily_note.id, new_pos, block_id],
+            ).map_err(|e| e.to_string())?;
+
+            conn.execute(
+                "DELETE FROM mind_map_nodes WHERE block_id = ?1",
+                params![block_id],
+            ).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    })();
+
+    if let Err(e) = result {
+        conn.execute("ROLLBACK", []).ok();
+        return Err(e);
     }
+
+    conn.execute("COMMIT", []).map_err(|e| e.to_string())?;
 
     Ok(())
 }
