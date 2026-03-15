@@ -91,10 +91,10 @@ pub fn get_blocks_by_tag_impl(conn: &Connection, tag_name: &str) -> Result<serde
 
     // Attach children to each task
     let mut tasks_with_children: Vec<crate::models::Block> = vec![];
+    let mut child_stmt = conn.prepare(
+        "SELECT * FROM blocks WHERE parent_id = ?1 ORDER BY position"
+    ).map_err(|e| e.to_string())?;
     for mut task in tasks {
-        let mut child_stmt = conn.prepare(
-            "SELECT * FROM blocks WHERE parent_id = ?1 ORDER BY position"
-        ).map_err(|e| e.to_string())?;
         task.children = child_stmt.query_map(params![task.id], |r| crate::commands::blocks::row_to_block(r))
             .map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
         tasks_with_children.push(task);
