@@ -90,13 +90,7 @@
       const node = nodes.find(n => n.node.id === nodeId);
       try {
         if (node) {
-          const newX = node.node.x;
-          const newY = node.node.y;
-          nodes = nodes.map(n => n.node.id === nodeId
-            ? { ...n, node: { ...n.node, x: newX, y: newY } }
-            : n
-          );
-          await updateNodePosition(nodeId, newX, newY);
+          await updateNodePosition(nodeId, node.node.x, node.node.y);
         }
       } finally {
         dragging = null;
@@ -109,11 +103,11 @@
     if (e.shiftKey) {
       // Shift+click: add/remove from selection
       if (selected.has(nodeId)) {
-        selected.delete(nodeId);
+        selected = new Set([...selected].filter(id => id !== nodeId));
       } else {
         selected.add(nodeId);
+        selected = new Set(selected);
       }
-      selected = new Set(selected);
     } else {
       // Normal click: clear selection, select only this node
       selected = new Set([nodeId]);
