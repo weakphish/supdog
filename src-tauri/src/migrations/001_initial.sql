@@ -57,19 +57,17 @@ CREATE TABLE mind_map_nodes (
 );
 
 -- FTS5 for full-text search on block content.
--- Note: blocks uses TEXT PRIMARY KEY, but SQLite still assigns an implicit integer rowid.
--- The FTS5 content_rowid and triggers reference this implicit rowid.
-CREATE VIRTUAL TABLE blocks_fts USING fts5(content, content_rowid='rowid');
+-- Uses a standalone FTS5 table (not external content) synced via triggers.
+CREATE VIRTUAL TABLE blocks_fts USING fts5(block_id UNINDEXED, content);
 
 -- Auto-sync triggers
 CREATE TRIGGER blocks_ai AFTER INSERT ON blocks BEGIN
-    INSERT INTO blocks_fts(rowid, content) VALUES (NEW.rowid, NEW.content);
+    INSERT INTO blocks_fts(block_id, content) VALUES (NEW.id, NEW.content);
 END;
 CREATE TRIGGER blocks_ad AFTER DELETE ON blocks BEGIN
-    INSERT INTO blocks_fts(blocks_fts, rowid, content) VALUES ('delete', OLD.rowid, OLD.content);
+    DELETE FROM blocks_fts WHERE block_id = OLD.id;
 END;
 CREATE TRIGGER blocks_au AFTER UPDATE OF content ON blocks BEGIN
-    INSERT INTO blocks_fts(blocks_fts, rowid, content) VALUES ('delete', OLD.rowid, OLD.content);
-    INSERT INTO blocks_fts(rowid, content) VALUES (NEW.rowid, NEW.content);
+    UPDATE blocks_fts SET content = NEW.content WHERE block_id = OLD.id;
 END;
 
