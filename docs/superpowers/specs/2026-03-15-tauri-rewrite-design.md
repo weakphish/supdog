@@ -60,7 +60,7 @@ Junction table: `block_id`, `tag_id`.
 
 ### BlockLink
 
-Directional association between blocks.
+Directional association between blocks. Links are stored as rows in this table — the block's `content` string is not modified. The `[[` syntax in the editor is an input mechanism only; once the user selects a target, a `BlockLink` row is created and the UI renders a link indicator on the source block.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -69,11 +69,42 @@ Directional association between blocks.
 | `target_id` | UUID | The block being referenced |
 | `created_at` | DateTime | |
 
-Unique constraint on `(source_id, target_id)`.
+Unique constraint on `(source_id, target_id)`. Cascade delete: when either source or target block is deleted, the link is deleted.
+
+### MindMap
+
+A named mind map session.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | Primary key |
+| `name` | String | User-given name |
+| `created_at` | DateTime | |
+| `updated_at` | DateTime | |
+
+### MindMapNode
+
+Spatial position of a block within a mind map. A block can belong to at most one mind map.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | Primary key |
+| `mind_map_id` | UUID | FK to MindMap |
+| `block_id` | UUID | FK to Block |
+| `x` | f64 | Canvas X position |
+| `y` | f64 | Canvas Y position |
+
+Unique constraint on `block_id` (a block belongs to at most one mind map). Connections between mind map nodes reuse the `BlockLink` table. When a node is "sent to journal", its `MindMapNode` row is removed and the block gains a `daily_note_id`.
 
 ### FTS
 
 SQLite FTS5 virtual table on block content, with auto-sync triggers on insert/update/delete.
+
+### Constraints & Conventions
+
+- Tag `name` has a unique constraint.
+- Block `position` uses sequential integers. On reorder, affected siblings are renumbered. No fractional indexing — the dataset is small enough that renumbering a handful of siblings is negligible.
+- `status:open` in search filter chips maps to `todo` + `in_progress`.
 
 ---
 
@@ -91,7 +122,8 @@ supdog/
 │   │   │   ├── daily_notes.rs
 │   │   │   ├── tags.rs
 │   │   │   ├── links.rs
-│   │   │   └── search.rs
+│   │   │   ├── search.rs
+│   │   │   └── mindmaps.rs
 │   │   └── quick_capture.rs  # Quick-capture window management
 │   └── Cargo.toml
 ├── src/                    # Svelte frontend
@@ -156,7 +188,8 @@ Spatial capture mode for brainstorming.
 
 Spotlight/quake-style popup window.
 
-- Summoned via global hotkey (works system-wide, even when app is in background).
+- Summoned via configurable global hotkey (default: `Cmd+Shift+Space` on macOS). Works system-wide, even when app is in background.
+- Quick capture writes directly to SQLite and emits a Tauri event so the main window refreshes the journal view if open.
 - Floating, borderless input field.
 - Type naturally. Prefix with `[] ` to make it a task, `#tag` to tag inline. Otherwise it's a bullet.
 - Enter commits to today's journal. Escape dismisses.
@@ -170,7 +203,7 @@ Spotlight/quake-style popup window.
 
 - **Keyboard-first.** Mouse works for everything, but power users shouldn't need it.
 - **`/`** opens search anywhere — FTS5 live results, navigable with arrow keys. Results show block with parent context.
-- **`Cmd+K`** (or configured hotkey) for quick capture when app is focused. Global hotkey works system-wide.
+- **`Cmd+K`** opens quick capture when app is focused (same window as the global hotkey summons).
 - **Sidebar** is minimal: Journal, Tags (expandable list), Mind Maps. Collapsible to icon-only.
 
 ### Journal Editing
@@ -179,7 +212,7 @@ Spotlight/quake-style popup window.
 - `Enter` at end of block creates a sibling below.
 - `Tab` indents (nests under previous sibling). `Shift+Tab` outdents.
 - `Cmd+Enter` toggles a block between bullet and task.
-- Drag to reorder, or keyboard shortcuts for move up/down.
+- Drag to reorder, or `Alt+Up`/`Alt+Down` to move a block among siblings.
 - `#` while editing triggers tag autocomplete.
 - `[[` while editing triggers block/task search for linking.
 - Deleting a parent block prompts: delete children or promote them.
@@ -201,7 +234,7 @@ Spotlight/quake-style popup window.
 - Double-click canvas to create a node.
 - Drag from node edge to connect.
 - Right-click menu: convert to task, add tag, send to journal.
-- Multi-select + "send to journal" creates nested outline under today.
+- Multi-select + "send to journal" creates a flat list of blocks under today's journal. Mind map connections are preserved as `BlockLink` rows, not converted to parent-child nesting.
 
 ---
 
