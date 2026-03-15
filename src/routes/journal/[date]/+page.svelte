@@ -33,6 +33,25 @@
     void journal.removeBlock(id);
   }
 
+  let newBlockInput = $state('');
+  let newBlockEl: HTMLInputElement | undefined = $state();
+
+  async function createNewBlock() {
+    const content = newBlockInput.trim();
+    if (!content) return;
+    newBlockInput = '';
+    const pos = journal.blocks.length;
+    await journal.addBlock(null, content, 'bullet', pos);
+    newBlockEl?.focus();
+  }
+
+  function handleNewBlockKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void createNewBlock();
+    }
+  }
+
   function findBlock(blocks: Block[], id: string): Block | null {
     for (const b of blocks) {
       if (b.id === id) return b;
@@ -111,19 +130,42 @@
 
 {#if journal.loading}
   <p class="loading">Loading...</p>
-{:else if journal.blocks.length === 0}
-  <p class="empty">No entries yet. Start typing to add one.</p>
 {:else}
-  <BlockTree blocks={journal.blocks} onedit={handleEdit} ondelete={handleDelete}
-    onindent={(id) => void handleIndent(id)}
-    onoutdent={(id) => void handleOutdent(id)}
+  {#if journal.blocks.length > 0}
+    <BlockTree blocks={journal.blocks} onedit={handleEdit} ondelete={handleDelete}
+      onindent={(id) => void handleIndent(id)}
+      onoutdent={(id) => void handleOutdent(id)}
+    />
+  {/if}
+  <input
+    bind:this={newBlockEl}
+    bind:value={newBlockInput}
+    class="new-block-input"
+    placeholder={journal.blocks.length === 0 ? 'Start typing…' : 'New block…'}
+    onkeydown={handleNewBlockKeydown}
+    autofocus={journal.blocks.length === 0}
   />
 {/if}
 
 <style>
-  .loading, .empty {
+  .loading {
     color: var(--text-muted);
     font-size: var(--text-sm);
     padding: var(--space-8) 0;
+  }
+  .new-block-input {
+    display: block;
+    width: 100%;
+    border: none;
+    outline: none;
+    font: inherit;
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+    padding: var(--space-1) 0;
+    margin-top: var(--space-1);
+    background: transparent;
+  }
+  .new-block-input::placeholder {
+    color: var(--text-muted);
   }
 </style>
