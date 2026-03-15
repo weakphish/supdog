@@ -5,6 +5,7 @@
 
   let input = $state('');
   let inputEl: HTMLInputElement | undefined = $state();
+  let error = $state<string | null>(null);
 
   $effect(() => {
     inputEl?.focus();
@@ -34,19 +35,23 @@
     }
     content = content.replace(/#[\w/]+/g, '').trim();
 
-    const today = localDateStr();
-    const note = await getOrCreateDailyNote(today);
-    const block = await createBlock(note.id, null, content, blockType, Date.now());
+    error = null;
+    try {
+      const today = localDateStr();
+      const note = await getOrCreateDailyNote(today);
+      const block = await createBlock(note.id, null, content, blockType, Date.now());
 
-    for (const name of tagNames) {
-      const tag = await createTag(name);
-      await addTagToBlock(block.id, tag.id);
+      for (const name of tagNames) {
+        const tag = await createTag(name);
+        await addTagToBlock(block.id, tag.id);
+      }
+
+      await emit('journal-refresh');
+      input = '';
+      await getCurrentWindow().hide();
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
     }
-
-    await emit('journal-refresh');
-
-    input = '';
-    await getCurrentWindow().hide();
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -70,6 +75,9 @@
     onkeydown={handleKeydown}
     aria-label="Quick capture input"
   />
+  {#if error}
+    <p class="error">{error}</p>
+  {/if}
   <div class="hint">
     <span>bullet</span>
     <span>[] task</span>
@@ -97,6 +105,11 @@
     font-size: 18px;
     font-family: var(--font-sans, -apple-system, sans-serif);
     width: 100%;
+  }
+  .error {
+    font-size: 11px;
+    color: #c00;
+    margin-top: 4px;
   }
   .hint {
     display: flex;
