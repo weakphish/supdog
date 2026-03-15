@@ -28,6 +28,12 @@ pub fn run() {
             commands::blocks::delete_block,
             commands::blocks::reorder_block,
             commands::blocks::reparent_block,
+            commands::tags::create_tag,
+            commands::tags::get_all_tags,
+            commands::tags::add_tag_to_block,
+            commands::tags::remove_tag_from_block,
+            commands::tags::get_tags_for_block,
+            commands::tags::get_blocks_by_tag,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
