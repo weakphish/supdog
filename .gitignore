@@ -1,1 +1,5 @@
 .worktrees/
+.superpowers/
+target/
+build/
+node_modules/
