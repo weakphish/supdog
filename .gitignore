@@ -1,5 +1,6 @@
 .worktrees/
 .superpowers/
+.svelte-kit/
 target/
 build/
 node_modules/
