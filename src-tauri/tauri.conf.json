@@ -1,0 +1,22 @@
+{
+  "productName": "supdog",
+  "identifier": "com.supdog.app",
+  "build": {
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "supdog",
+        "width": 1024,
+        "height": 768
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "icon": []
+  }
+}
